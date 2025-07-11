@@ -6,33 +6,34 @@
 # Install FastVimes
 uv add fastvimes
 
-# Point at any DuckDB database
+# Point at any DuckDB database (use uv run for all commands)
 uv run fastvimes serve --db my_data.db
 
-# Visit http://localhost:8000/admin/html
+# Visit http://localhost:8000/admin for table management
 ```
 
 You now have:
 - REST API at `/{table}` endpoints (use `/{schema.table}` for schemas)
 - HTML forms at `/{table}/html`
-- Admin interface at `/admin/html` (table management)
+- Admin interface at `/admin` (table management)
 - OpenAPI docs at `/docs`
 
 ### CLI Commands
 ```bash
-# Main actions (match API endpoints)
+# Main actions (use uv run for all commands)
 uv run fastvimes serve --db data.db
-uv run fastvimes query users --limit 10                    # GET /users
-uv run fastvimes create users --name "John" --email "john@example.com"  # POST /users
-uv run fastvimes update users --id 1 --name "Jane"         # PUT /users?id=1
-uv run fastvimes delete users --id 1                       # DELETE /users?id=1
+uv run fastvimes init --db data.db --force                 # Initialize database
+uv run fastvimes schema --db data.db                       # Show all tables
+uv run fastvimes tables --db data.db                       # List table configs
+uv run fastvimes query "SELECT * FROM users LIMIT 10" --db data.db
 
-# Schema support
-uv run fastvimes query schema.users --select name,email
+# Different output formats
+uv run fastvimes query "SELECT COUNT(*) FROM users" --format json --db data.db
+uv run fastvimes query "SELECT * FROM users" --format csv --db data.db
 
 # Custom app file
-uv run myapp.py serve
-uv run myapp.py query users --limit 10
+uv run python myapp.py serve
+uv run python myapp.py init-db --force
 ```
 
 ## 2. Add Custom Styles
@@ -51,23 +52,29 @@ uv run fastvimes serve --db my_data.db --html static/
 
 ## 3. Configure Tables
 
-Create `config.toml`:
+Create `fastvimes.toml`:
 ```toml
-[default]
-mode = "readonly"
-html = true
+# Database settings
+db_path = "my_data.db"
+read_only = false
 
+# Default settings for all tables
+default_mode = "readonly"
+default_html = true
+
+# Per-table overrides
 [tables.users]
 mode = "readwrite"
 primary_key = "email"
 
 [tables.orders]
 mode = "readwrite"
+html = false
 ```
 
 Run with config:
 ```bash
-uv run fastvimes serve --db my_data.db --config config.toml
+uv run fastvimes serve --config fastvimes.toml
 ```
 
 ## 4. Configuration Management
@@ -82,18 +89,19 @@ export FASTVIMES_TABLES_USERS_PRIMARY_KEY=email
 export FASTVIMES_ADMIN_ENABLED=true
 
 # CLI with config file
-uv run fastvimes serve --config config.toml
+uv run fastvimes serve --config fastvimes.toml
 ```
 
 ## 5. Export Configuration from Admin
 
-Visit `/admin/html` to manage configuration:
+Visit `/admin` to manage configuration:
 
 ```toml
-# Generated config.toml (click "Export Config" in admin)
-[default]
-mode = "readwrite"
-html = true
+# Generated fastvimes.toml (click "Export Config" in admin)
+db_path = "my_data.db"
+admin_enabled = true
+default_mode = "readwrite"
+default_html = true
 
 [tables.users]
 mode = "readonly"
@@ -101,24 +109,25 @@ primary_key = "email"
 
 [tables.orders]
 mode = "readwrite"
+html = false
 ```
 
 ## 6. Create a Python App
 
 Create `app.py`:
 ```python
-from fastvimes import FastVimes, FastVimesSettings
+from fastvimes import FastVimes
 
-app = FastVimes(config=FastVimesSettings(
+app = FastVimes(
     db_path="my_data.db",
     html_path="static/"
-))
+)
 
 if __name__ == "__main__":
     app.run()
 ```
 
-Run: `uv run python app.py serve`
+Run: `uv run python app.py`
 
 ## Next Steps
 

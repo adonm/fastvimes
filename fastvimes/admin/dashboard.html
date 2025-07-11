@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FastVimes Admin</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/bulma@1.0.4/css/bulma.css">
+    <script src="https://unpkg.com/htmx.org@2.0.6/dist/htmx.js"></script>
+    <script defer src="https://use.fontawesome.com/releases/v5.15.4/js/all.js"></script>
+</head>
+<body>
+    <section class="hero is-primary">
+        <div class="hero-body">
+            <div class="container">
+                <h1 class="title">FastVimes Admin</h1>
+                <h2 class="subtitle">Database Management Interface</h2>
+            </div>
+        </div>
+    </section>
+    
+    <section class="section">
+        <div class="container">
+            <div class="columns">
+                <div class="column is-3">
+                    <aside class="menu">
+                        <p class="menu-label">General</p>
+                        <ul class="menu-list">
+                            <li><a href="/admin">Dashboard</a></li>
+                            <li><a href="/admin/tables">Tables</a></li>
+                            <li><a href="/admin/schema">Schema</a></li>
+                            <li><a href="/admin/config">Configuration</a></li>
+                        </ul>
+                    </aside>
+                </div>
+                <div class="column">
+                    <div class="box">
+                        <h3 class="title is-4">Welcome to FastVimes</h3>
+                        <p>This is the admin dashboard for your FastVimes application.</p>
+                        <p>Use the navigation menu to manage your database tables and configuration.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</body>
+</html>

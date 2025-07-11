@@ -1,0 +1,122 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastvimes"
+version = "0.1.0"
+description = "FastAPI-inspired library for building data tools with automatic CLI, web API, and HTML interfaces"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "FastVimes Team", email = "fastvimes@example.com"},
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.104.0",
+    "typer>=0.9.0",
+    "ibis-framework[duckdb]>=7.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "uvicorn>=0.24.0",
+    "python-fasthtml>=0.6.0",
+    "python-multipart>=0.0.6",
+    "pyrql>=0.7.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+fastvimes = "fastvimes.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/adonm/fastvimes"
+Repository = "https://github.com/adonm/fastvimes.git"
+Issues = "https://github.com/adonm/fastvimes/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fastvimes*"]
+
+[tool.setuptools.package-data]
+fastvimes = ["admin/*.html", "static/*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["fastvimes"]
+omit = ["tests/*", "examples/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=6.2.1",
+    "rich>=14.0.0",
+    "ruff>=0.12.2",
+]

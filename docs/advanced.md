@@ -10,7 +10,7 @@ import ibis
 
 app = FastVimes(config=FastVimesSettings(
     db_path="analytics.db",
-    default=TableConfig(mode="readwrite")
+    default_mode="readwrite"
 ))
 
 # Custom business logic endpoints
@@ -42,7 +42,8 @@ app = FastVimes(config=FastVimesSettings(
     db_path="data.db",
     extensions=["spatial", "httpfs"],
     read_only=False,
-    default=TableConfig(mode="readonly", html=True),
+    default_mode="readonly",
+    default_html=True,
     tables={
         "users": TableConfig(mode="readwrite", primary_key="email"),
         "orders": TableConfig(mode="readwrite"),
@@ -137,7 +138,7 @@ GROUP BY u.id, u.name, u.email;
 
 Now query the view:
 ```bash
-GET /user_stats?total_spent=gt.100
+GET /user_stats?gt(total_spent,100)
 ```
 
 ## Custom Data Validation
@@ -160,7 +161,7 @@ class User:
 
 app = FastVimes(config=FastVimesSettings(
     tables={
-        "users": TableConfig(mode="readwrite", model=User)
+        "users": TableConfig(mode="readwrite")
     }
 ))
 ```
@@ -303,16 +304,19 @@ export FASTVIMES_ADMIN_ENABLED=true
 
 ## CLI Command Structure
 
-FastVimes CLI actions mirror the API endpoints exactly:
+FastVimes CLI provides database management and inspection:
 
 ```bash
-# CLI Action -> API Endpoint
-uv run fastvimes query users --limit 10 -> GET /users?limit=10
-uv run fastvimes create users --name "John" -> POST /users {"name": "John"}
-uv run fastvimes update users --id 1 --name "Jane" -> PUT /users?id=1 {"name": "Jane"}
-uv run fastvimes delete users --id 1 -> DELETE /users?id=1
+# Available CLI commands
+uv run fastvimes serve --db data.db                        # Start server -> All API endpoints
+uv run fastvimes init --db data.db --force                 # Initialize database
+uv run fastvimes schema --db data.db                       # Show table schemas
+uv run fastvimes tables --db data.db                       # List table configurations
+uv run fastvimes query "SELECT * FROM users" --db data.db  # Execute SQL
 
-# All CLI actions use the same code paths as API endpoints
+# Use the web API or admin interface for CRUD operations
+# GET /users, POST /users, PUT /users/1, DELETE /users/1
+# Admin interface: http://localhost:8000/admin
 ```
 
 ## Testing
