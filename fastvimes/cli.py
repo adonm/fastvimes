@@ -1,397 +1,378 @@
-"""Command line interface for FastVimes."""
-
-import json
-import shlex
-import subprocess
-import threading
-import time
-from pathlib import Path
-from typing import Optional
+"""RQL-aligned CLI for FastVimes - mirrors API endpoints exactly."""
 
 import typer
-import uvicorn
-from rich.console import Console
-from rich.json import JSON
-from rich.table import Table
+import json
+import threading
+import time
+import httpx
+from typing import Optional, Any
+from pathlib import Path
 
-from .app import FastVimes
-from .config import FastVimesSettings
+app = typer.Typer(help="FastVimes CLI - RQL-enabled database operations")
 
-console = Console()
-app = typer.Typer(name="fastvimes", help="FastVimes CLI")
 
+def _get_app(db: str):
+    """Get FastVimes app instance."""
+    from fastvimes.app import FastVimes
+    # Configure for read-write access for testing
+    return FastVimes(db_path=db, default_mode="readwrite")
+
+
+def _format_output(data: Any) -> None:
+    """Format and print output as JSON."""
+    if data is None:
+        return
+    print(json.dumps(data, indent=2, default=str))
+
+
+# Core table operations mirroring /api/* endpoints
+
+@app.command("tables")
+def list_tables(
+    db: str = typer.Option(..., "--db", help="Database file path"),
+):
+    """List all tables (mirrors GET /api/tables)."""
+    fv = _get_app(db)
+    tables = fv.list_tables_api()
+    _format_output({"tables": tables})
+
+
+@app.command("schema")
+def show_schema(
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    table: Optional[str] = typer.Option(None, "--table", help="Specific table to show"),
+):
+    """Show database schema information."""
+    fv = _get_app(db)
+    
+    if table:
+        # Show specific table schema
+        try:
+            schema = fv.db_service.get_table_schema(table)
+            _format_output(schema)
+        except Exception as e:
+            typer.echo(f"Error getting schema for table '{table}': {e}", err=True)
+            raise typer.Exit(1)
+    else:
+        # Show all tables with basic info
+        tables = fv.list_tables_api()
+        schemas = {}
+        for table_name in tables:
+            try:
+                schemas[table_name] = fv.db_service.get_table_schema(table_name)
+            except Exception as e:
+                schemas[table_name] = {"error": str(e)}
+        _format_output({"schemas": schemas})
+
+
+@app.command("config")
+def show_config(
+    db: str = typer.Option(..., "--db", help="Database file path"),
+):
+    """Show current configuration."""
+    fv = _get_app(db)
+    config_dict = {
+        "db_path": fv.config.db_path,
+        "read_only": fv.config.read_only,
+        "admin_enabled": fv.config.admin_enabled,
+        "default_mode": fv.config.default_mode,
+        "default_html": fv.config.default_html,
+        "extensions": fv.config.extensions,
+        "tables": {name: config.model_dump() for name, config in fv.config.tables.items()}
+    }
+    _format_output(config_dict)
+
+
+@app.command("get")
+def get_table_data(
+    table: str,
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    # RQL-style parameters matching API endpoints
+    eq: Optional[str] = typer.Option(None, help="Equal filter: eq(field,value)"),
+    lt: Optional[str] = typer.Option(None, help="Less than: lt(field,value)"),
+    gt: Optional[str] = typer.Option(None, help="Greater than: gt(field,value)"),
+    contains: Optional[str] = typer.Option(None, help="Contains: contains(field,value)"),
+    sort: Optional[str] = typer.Option(None, help="Sort: +field,-field"),
+    limit: Optional[int] = typer.Option(None, help="Limit results"),
+    offset: Optional[int] = typer.Option(None, help="Offset results"),
+    # Raw RQL query string (most flexible)
+    rql: Optional[str] = typer.Option(None, help="Raw RQL query string"),
+):
+    """Get data from table with RQL filters (mirrors GET /api/{table})."""
+    fv = _get_app(db)
+    
+    # Build RQL query string from parameters
+    rql_parts = []
+    
+    # Handle individual RQL parameters
+    if eq:
+        rql_parts.append(f"eq({eq})")
+    if lt:
+        rql_parts.append(f"lt({lt})")
+    if gt:
+        rql_parts.append(f"gt({gt})")
+    if contains:
+        rql_parts.append(f"contains({contains})")
+    if sort:
+        # Parse sort format: +field,-field becomes sort(+field,-field)
+        rql_parts.append(f"sort({sort})")
+    if limit:
+        if offset:
+            rql_parts.append(f"limit({limit},{offset})")
+        else:
+            rql_parts.append(f"limit({limit})")
+    
+    # Build final RQL string
+    if rql:
+        # Use provided raw RQL
+        final_rql = rql
+    elif rql_parts:
+        # Combine individual parts with AND
+        if len(rql_parts) == 1:
+            final_rql = rql_parts[0]
+        else:
+            filters = [part for part in rql_parts if not part.startswith(('sort(', 'limit('))]
+            non_filters = [part for part in rql_parts if part.startswith(('sort(', 'limit('))]
+            if len(filters) > 1:
+                filter_part = f"and({','.join(filters)})"
+            elif len(filters) == 1:
+                filter_part = filters[0]
+            else:
+                filter_part = ""
+            
+            all_parts = ([filter_part] if filter_part else []) + non_filters
+            final_rql = "&".join(all_parts)
+    else:
+        final_rql = ""
+    
+    # Convert individual parameters to proper query parameters dict
+    query_params = {}
+    
+    if eq:
+        query_params[f"eq({eq})"] = None
+    if lt:
+        query_params[f"lt({lt})"] = None
+    if gt:
+        query_params[f"gt({gt})"] = None
+    if contains:
+        query_params[f"contains({contains})"] = None
+    if sort:
+        query_params[f"sort({sort})"] = None
+    if limit:
+        if offset:
+            query_params[f"limit({limit},{offset})"] = None
+        else:
+            query_params[f"limit({limit})"] = None
+    
+    # Handle raw RQL if provided
+    if rql:
+        # Parse raw RQL and add to query_params
+        for param in rql.split('&'):
+            if param.strip():
+                query_params[param.strip()] = None
+    
+    try:
+        # Use same RQL processing as API endpoints
+        results = fv.get_table_data_api(table, query_params)
+        _format_output(results)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("post")
+def create_record(
+    table: str,
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    data: str = typer.Option(..., "--data", help="JSON data for the record"),
+):
+    """Create record in table (mirrors POST /api/{table})."""
+    fv = _get_app(db)
+    
+    try:
+        data_dict = json.loads(data)
+        result = fv.create_record_api(table, data_dict)
+        _format_output(result)
+    except json.JSONDecodeError:
+        typer.echo("Invalid JSON data", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("put")  
+def update_records(
+    table: str,
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    data: str = typer.Option(..., "--data", help="JSON data for the record"),
+    # RQL filters for which records to update
+    eq: Optional[str] = typer.Option(None, help="Update where: eq(field,value)"),
+    rql: Optional[str] = typer.Option(None, help="Update where: RQL query"),
+):
+    """Update records in table (mirrors PUT /api/{table})."""
+    fv = _get_app(db)
+    
+    try:
+        data_dict = json.loads(data)
+        query_params = {}
+        if eq:
+            query_params[f"eq({eq})"] = None
+        if rql:
+            for param in rql.split('&'):
+                if param.strip():
+                    query_params[param.strip()] = None
+        
+        result = fv.update_records_api(table, data_dict, query_params)
+        _format_output(result)
+    except json.JSONDecodeError:
+        typer.echo("Invalid JSON data", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("delete")
+def delete_records(
+    table: str,
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    # RQL filters for which records to delete
+    eq: Optional[str] = typer.Option(None, help="Delete where: eq(field,value)"),
+    rql: Optional[str] = typer.Option(None, help="Delete where: RQL query"),
+):
+    """Delete records from table (mirrors DELETE /api/{table})."""
+    fv = _get_app(db)
+    
+    try:
+        query_params = {}
+        if eq:
+            query_params[f"eq({eq})"] = None
+        if rql:
+            for param in rql.split('&'):
+                if param.strip():
+                    query_params[param.strip()] = None
+        
+        result = fv.delete_records_api(table, query_params)
+        _format_output(result)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+# Server and utility commands
 
 @app.command()
 def serve(
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
+    db: str = typer.Option(..., "--db", help="Database file path"),
     host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
     port: int = typer.Option(8000, "--port", help="Port to bind to"),
-    reload: bool = typer.Option(
-        False, "--reload/--no-reload", help="Enable auto-reload"
-    ),
-    verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload"),
 ):
     """Start the FastVimes server."""
-    if verbose:
-        console.print("Starting FastVimes server...")
-
-    # Create configuration
-    if config:
-        # Load from config file
-        settings = FastVimesSettings.from_toml(config)
-        # Override with CLI args
-        if db:
-            settings.db_path = db
-    else:
-        # Create from CLI args and env vars
-        config_kwargs = {}
-        if db:
-            config_kwargs["db_path"] = db
-        settings = FastVimesSettings(**config_kwargs)
-
-    # Create app
-    fastvimes_app = FastVimes(config=settings)
-
-    if verbose:
-        console.print(f"Database: {settings.db_path}")
-        console.print(f"Server: http://{host}:{port}")
-
-    # Start server - disable reload if not supported
-    if reload:
-        console.print("⚠️  Reload mode not supported with FastVimes CLI. Use --no-reload or run with uvicorn directly.")
-        console.print("   For development with reload, use: uvicorn your_app:app --reload")
-        reload = False
+    import uvicorn
+    from fastvimes.app import FastVimes
     
-    uvicorn.run(fastvimes_app, host=host, port=port, reload=reload, access_log=verbose)
-
-
-@app.command()
-def config(
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
-    verbose: bool = typer.Option(
-        False, "--verbose", help="Show detailed configuration"
-    ),
-):
-    """Show configuration information."""
-    # Create configuration
-    if config:
-        settings = FastVimesSettings.from_toml(config)
-        if db:
-            settings.db_path = db
-    else:
-        config_kwargs = {}
-        if db:
-            config_kwargs["db_path"] = db
-        settings = FastVimesSettings(**config_kwargs)
-
-    console.print("Current configuration:")
-    console.print(f"  Database path: {settings.db_path}")
-    console.print(f"  HTML path: {settings.html_path}")
-    console.print(f"  Read-only: {settings.read_only}")
-    console.print(f"  Extensions: {settings.extensions}")
-    console.print(f"  Default table mode: {settings.default_mode}")
-    console.print(f"  Admin enabled: {settings.admin_enabled}")
-
-    if verbose:
-        console.print("\nTable configurations:")
-        for table_name, table_config in settings.tables.items():
-            console.print(f"  {table_name}: {table_config.mode}")
-
-
-@app.command()
-def create(
-    table: str = typer.Argument(..., help="Table name"),
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
-    data: str | None = typer.Option(None, "--data", help="JSON data to insert"),
-    verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
-):
-    """Create new records in a table."""
-    if verbose:
-        console.print(f"Creating record in table: {table}")
-
-    # Create configuration
-    if config:
-        settings = FastVimesSettings.from_toml(config)
-        if db:
-            settings.db_path = db
-    else:
-        config_kwargs = {}
-        if db:
-            config_kwargs["db_path"] = db
-        settings = FastVimesSettings(**config_kwargs)
-
-    # Create app
-    fastvimes_app = FastVimes(config=settings)
-
-    try:
-        # Parse JSON data if provided
-        if data:
-            import json
-
-            record_data = json.loads(data)
-        else:
-            console.print("No data provided. Use --data with JSON format.")
-            raise typer.Exit(1)
-
-        # Get table model
-        table_model = fastvimes_app.get_table_dataclass(table)
-
-        # Validate data
-        validated_record = table_model(**record_data)
-
-        # Insert into database
-        table_ref = fastvimes_app.get_table(table)
-        insert_data = validated_record.model_dump()
-
-        # Use raw SQL for insertion since Ibis insert can be complex
-        columns = ", ".join(insert_data.keys())
-        placeholders = ", ".join(["?" for _ in insert_data.values()])
-        sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-
-        fastvimes_app.connection.raw_sql(sql, list(insert_data.values()))
-
-        console.print(f"Record created successfully in {table}")
-        if verbose:
-            console.print(f"Data: {insert_data}")
-
-    except Exception as e:
-        console.print(f"Error creating record: {e}")
-        raise typer.Exit(1)
-    finally:
-        fastvimes_app.close()
+    app_instance = FastVimes(db_path=db)
+    
+    typer.echo(f"Starting FastVimes server with RQL support...")
+    typer.echo(f"Database: {db}")
+    typer.echo(f"Tables: {', '.join(app_instance.list_tables_api())}")
+    typer.echo(f"API: http://{host}:{port}/api/")
+    typer.echo(f"Admin: http://{host}:{port}/admin")
+    
+    uvicorn.run(
+        app_instance,
+        host=host,
+        port=port,
+        reload=reload,
+    )
 
 
 @app.command()
 def init(
-    db: str | None = typer.Option("data.db", "--db", help="Database path"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing database"),
 ):
-    """Initialize a new FastVimes project."""
-    console.print("Initializing FastVimes project...")
-
-    # Create database
-    import ibis
-
-    if not Path(db).exists() or force:
-        conn = ibis.duckdb.connect(database=db)
-        conn.disconnect()
-        console.print(f"Created database: {db}")
-
-    # Create configuration file
-    config_file = Path("fastvimes.toml")
-    if not config_file.exists() or force:
-        config_content = f"""# Database settings
-db_path = "{db}"
-extensions = []
-read_only = false
-
-# Interface settings
-html_path = "./static"
-admin_enabled = true
-
-# Default table settings
-default_mode = "readonly"
-default_html = true
-default_use_rowid = true
-
-# Per-table overrides
-# [tables.users]
-# mode = "readwrite"
-# primary_key = "email"
-"""
-        config_file.write_text(config_content.strip())
-        console.print(f"Created configuration: {config_file}")
-
-    console.print("Project initialized successfully!")
-
-
-@app.command()
-def schema(
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    table: str | None = typer.Option(
-        None, "--table", help="Show schema for specific table"
-    ),
-):
-    """Show database schema."""
-    config_kwargs = {}
-    if db:
-        config_kwargs["db_path"] = db
-
-    settings = FastVimesSettings(**config_kwargs)
-
-    try:
-        fastvimes_app = FastVimes(config=settings)
-
-        if table:
-            # Show specific table schema
-            try:
-                table_obj = fastvimes_app.get_table(table)
-                schema = table_obj.schema()
-
-                console.print(f"Schema for table '{table}':")
-                schema_table = Table(show_header=True, header_style="bold magenta")
-                schema_table.add_column("Column", style="cyan")
-                schema_table.add_column("Type", style="green")
-
-                for field_name, field_type in schema.items():
-                    schema_table.add_row(field_name, str(field_type))
-
-                console.print(schema_table)
-
-            except Exception as e:
-                console.print(f"Error: {e}", style="red")
-        else:
-            # Show all tables
-            tables = fastvimes_app.list_tables()
-
-            console.print("Available tables:")
-            for table_name, table_config in tables.items():
-                console.print(f"  {table_name} (mode: {table_config.mode})")
-
-        fastvimes_app.close()
-
-    except Exception as e:
-        console.print(f"Error: {e}", style="red")
+    """Initialize database with sample data."""
+    if Path(db).exists() and not force:
+        typer.echo(f"Database {db} already exists. Use --force to overwrite.")
         raise typer.Exit(1)
-
-
-@app.command()
-def tables(
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
-):
-    """List all tables in the database."""
-    if config:
-        # Load from config file
-        settings = FastVimesSettings.from_toml(config)
-        # Override with CLI args
-        if db:
-            settings.db_path = db
-    else:
-        # Create from CLI args and env vars
-        config_kwargs = {}
-        if db:
-            config_kwargs["db_path"] = db
-        settings = FastVimesSettings(**config_kwargs)
-
+    
+    # Remove existing file if force is specified
+    if force and Path(db).exists():
+        Path(db).unlink()
+    
     try:
-        fastvimes_app = FastVimes(config=settings)
-
-        tables = fastvimes_app.list_tables()
-
-        if tables:
-            table_display = Table(show_header=True, header_style="bold magenta")
-            table_display.add_column("Table", style="cyan")
-            table_display.add_column("Mode", style="green")
-            table_display.add_column("HTML", style="yellow")
-            table_display.add_column("Primary Key", style="blue")
-
-            for table_name, table_config in tables.items():
-                table_display.add_row(
-                    table_name,
-                    table_config.mode,
-                    "Yes" if table_config.html else "No",
-                    table_config.primary_key or "Auto",
-                )
-
-            console.print(table_display)
-        else:
-            console.print("No tables found in database.")
-
-        fastvimes_app.close()
-
+        # Create FastVimes app to properly initialize database
+        fv = _get_app(db)
+        
+        # Create sample tables through FastVimes to ensure compatibility
+        fv.db_service._connection.execute("""
+            CREATE TABLE users (
+                id INTEGER,
+                name VARCHAR,
+                email VARCHAR,
+                age INTEGER,
+                active BOOLEAN
+            )
+        """)
+        
+        fv.db_service._connection.execute("""
+            INSERT INTO users VALUES 
+            (1, 'Alice', 'alice@example.com', 25, true),
+            (2, 'Bob', 'bob@example.com', 30, true),
+            (3, 'Charlie', 'charlie@example.com', 35, false)
+        """)
+        
+        # Refresh table routes so FastVimes recognizes the new table
+        fv.refresh_table_routes()
+        
+        typer.echo(f"Initialized database: {db} with sample users table")
+        typer.echo(f"Tables available: {', '.join(fv.list_tables_api())}")
+        
     except Exception as e:
-        console.print(f"Error: {e}", style="red")
+        typer.echo(f"Failed to initialize database: {e}", err=True)
+        # Clean up partially created file
+        if Path(db).exists():
+            Path(db).unlink()
         raise typer.Exit(1)
 
 
 @app.command()
 def query(
-    sql: str = typer.Argument(..., help="SQL query to execute"),
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    format: str = typer.Option(
-        "table", "--format", help="Output format: table, json, csv"
-    ),
+    sql: str,
+    db: str = typer.Option(..., "--db", help="Database file path"),
+    format_output: str = typer.Option("json", "--format", help="Output format"),
 ):
-    """Execute a SQL query."""
-    config_kwargs = {}
-    if db:
-        config_kwargs["db_path"] = db
-
-    settings = FastVimesSettings(**config_kwargs)
-
+    """Execute raw SQL query."""
+    fv = _get_app(db)
+    
     try:
-        fastvimes_app = FastVimes(config=settings)
-
-        result = fastvimes_app.execute_query(sql)
-
-        if format == "json":
-            # Convert to JSON
-            if hasattr(result, "to_pandas"):
-                df = result.to_pandas()
-                data = df.to_dict(orient="records")
-                console.print(JSON.from_data(data))
-            elif isinstance(result, dict):
-                console.print(JSON.from_data(result))
-            else:
-                console.print(JSON.from_data(str(result)))
-
-        elif format == "csv":
-            # Convert to CSV
-            if hasattr(result, "to_pandas"):
-                df = result.to_pandas()
-                console.print(df.to_csv(index=False))
-            else:
-                console.print(str(result))
-
+        result = fv.execute_raw_sql(sql)
+        if format_output == "json":
+            _format_output(result.to_dict('records'))
+        elif format_output == "csv":
+            print(result.to_csv())
         else:
-            # Default table format
-            if hasattr(result, "to_pandas"):
-                df = result.to_pandas()
-                if not df.empty:
-                    # Create table
-                    table = Table(show_header=True, header_style="bold magenta")
-
-                    # Add columns
-                    for col in df.columns:
-                        table.add_column(str(col), style="cyan")
-
-                    # Add rows
-                    for _, row in df.iterrows():
-                        table.add_row(*[str(val) for val in row])
-
-                    console.print(table)
-                else:
-                    console.print("No results.")
-            elif isinstance(result, dict):
-                # For DDL results
-                console.print(JSON.from_data(result))
-            else:
-                console.print(str(result))
-
-        fastvimes_app.close()
-
+            print(result)
     except Exception as e:
-        console.print(f"Error: {e}", style="red")
+        typer.echo(f"Query failed: {e}", err=True)
         raise typer.Exit(1)
 
 
-@app.command()
-def curl(
-    url: str = typer.Argument(..., help="URL path to request (e.g., 'GET /users')"),
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
+@app.command("httpx")
+def httpx_cmd(
+    url: str = typer.Argument(..., help="URL path to request (e.g., 'GET /api/users')"),
+    db: str = typer.Option(..., "--db", help="Database path"),
     host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
     port: int = typer.Option(8000, "--port", help="Port to bind to"),
-    data: str | None = typer.Option(None, "--data", help="JSON data for POST/PUT requests"),
-    headers: str | None = typer.Option(None, "--headers", help="Additional headers (e.g., 'Accept: text/html')"),
-    verbose: bool = typer.Option(False, "--verbose", help="Verbose curl output"),
+    data: Optional[str] = typer.Option(None, "--data", help="JSON data for POST/PUT"),
+    headers: Optional[str] = typer.Option(None, "--headers", help="Headers"),
+    verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
 ):
-    """Test API endpoints with automatic server management."""
-    # Parse URL - expect format like "GET /users" or "/users?eq(id,1)"
+    """Test FastAPI HTTP endpoints using httpx (tests URL encoding, RQL parsing, etc.)."""
+    # Parse URL
     parts = url.strip().split(None, 1)
     if len(parts) == 2:
         method, path = parts
@@ -399,111 +380,87 @@ def curl(
     else:
         method = "GET"
         path = parts[0]
-    
-    # Ensure path starts with /
+
     if not path.startswith('/'):
         path = '/' + path
-    
-    # Create configuration
-    if config:
-        settings = FastVimesSettings.from_toml(config)
-        if db:
-            settings.db_path = db
-    else:
-        config_kwargs = {}
-        if db:
-            config_kwargs["db_path"] = db
-        settings = FastVimesSettings(**config_kwargs)
 
-    # Create app
-    fastvimes_app = FastVimes(config=settings)
+    # Start server in background
+    from fastvimes.app import FastVimes
+    import uvicorn
     
-    # Server management
-    server_process = None
-    server_thread = None
+    # Configure for read-write access for testing (same as CLI)
+    app_instance = FastVimes(db_path=db, default_mode="readwrite")
     
     def run_server():
-        """Run the server in a separate thread."""
-        try:
-            uvicorn.run(
-                fastvimes_app, 
-                host=host, 
-                port=port, 
-                log_level="error" if not verbose else "info",
-                access_log=False
-            )
-        except Exception as e:
-            if verbose:
-                console.print(f"Server error: {e}")
+        uvicorn.run(
+            app_instance,
+            host=host,
+            port=port,
+            log_level="error",
+            access_log=False
+        )
+
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    # Wait for server to start
+    time.sleep(2)
     
     try:
-        # Start server in background thread
-        server_thread = threading.Thread(target=run_server, daemon=True)
-        server_thread.start()
-        
-        # Wait for server to start
-        time.sleep(2)
-        
-        # Build curl command
+        # Build request
         base_url = f"http://{host}:{port}"
-        full_url = f"{base_url}{path}"
         
-        curl_cmd = ["curl", "-X", method]
-        
-        if data:
-            curl_cmd.extend(["-d", data])
-            curl_cmd.extend(["-H", "Content-Type: application/json"])
-        
+        # Parse headers
+        request_headers = {}
         if headers:
             for header in headers.split(','):
-                curl_cmd.extend(["-H", header.strip()])
+                if ':' in header:
+                    key, value = header.split(':', 1)
+                    request_headers[key.strip()] = value.strip()
         
+        # Parse JSON data
+        json_data = None
+        if data:
+            try:
+                json_data = json.loads(data)
+                request_headers["Content-Type"] = "application/json"
+            except json.JSONDecodeError:
+                typer.echo(f"Invalid JSON data: {data}", err=True)
+                raise typer.Exit(1)
+
         if verbose:
-            curl_cmd.append("-v")
-        
-        curl_cmd.append(full_url)
-        
-        if verbose:
-            console.print(f"Running: {' '.join(shlex.quote(arg) for arg in curl_cmd)}")
-        
-        # Execute curl
-        result = subprocess.run(curl_cmd, capture_output=True, text=True)
-        
-        # Print output
-        if result.stdout:
-            console.print(result.stdout)
-        if result.stderr and verbose:
-            console.print(f"[red]stderr: {result.stderr}[/red]")
-        
-        # Exit with curl's exit code
-        if result.returncode != 0:
-            raise typer.Exit(result.returncode)
+            typer.echo(f"Making {method} request to: {base_url}{path}")
+            if json_data:
+                typer.echo(f"Data: {json.dumps(json_data)}")
+            if request_headers:
+                typer.echo(f"Headers: {request_headers}")
+
+        # Make HTTP request using httpx
+        with httpx.Client() as client:
+            response = client.request(
+                method=method,
+                url=f"{base_url}{path}",
+                json=json_data,
+                headers=request_headers
+            )
             
-    except KeyboardInterrupt:
-        console.print("\nInterrupted by user")
+            if verbose:
+                typer.echo(f"Status: {response.status_code}")
+                typer.echo(f"Response headers: {dict(response.headers)}")
+            
+            # Print response body
+            print(response.text)
+            
+            # Exit with non-zero code for HTTP errors
+            if response.status_code >= 400:
+                raise typer.Exit(1)
+
+    except httpx.RequestError as e:
+        typer.echo(f"Request error: {e}", err=True)
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"Error: {e}", style="red")
+        typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1)
-    finally:
-        # Server cleanup happens automatically when main process exits
-        fastvimes_app.close()
-
-
-@app.callback()
-def main(
-    db: str | None = typer.Option(None, "--db", help="Database path"),
-    config: str | None = typer.Option(None, "--config", help="Configuration file path"),
-    verbose: bool = typer.Option(False, "--verbose", help="Verbose output"),
-    version: bool = typer.Option(False, "--version", help="Show version"),
-):
-    """FastVimes: FastAPI-inspired framework for building data tools."""
-    if version:
-        console.print("FastVimes version 0.1.0")
-        raise typer.Exit(0)
-
-    if verbose:
-        console.print("FastVimes CLI")
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ class FastVimesSettings(BaseSettings):
     )
 
     # Database settings
-    db_path: str = "data.db"
+    db_path: str = ":memory:"
     extensions: list[str] = []
     read_only: bool = False
 

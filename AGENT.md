@@ -6,12 +6,73 @@ Development commands and project info for AI assistants.
 
 **Follow established patterns to minimize custom code:**
 
-- **Frontend**: HTMX fragments + Bulma CSS + static files
-- **Python API**: Ibis connection patterns + pydantic config
+- **Frontend**: FastHTML generation + HTMX fragments + Bulma CSS
+- **Python API**: SQLGlot + DuckDB direct connection + pydantic config
 - **HTTP API**: FastAPI dependency injection + auto-generated endpoints with RQL query language
-- **Services**: DatabaseService, AdminService (clean separation)
-- **CLI**: Typer commands inheriting from Python API
+- **Services**: DatabaseService (clean separation)
+- **CLI**: Typer commands inheriting from Python API + static-override for customization
 - **FastAPI-first**: Use FastAPI's built-in parameter parsing, dependency injection, and validation instead of manual HTTP request parsing
+- **Static-first HTML**: FastHTML generates static HTML, HTMX adds dynamic capabilities
+
+## Admin UI Architecture
+
+**The admin interface is a comprehensive single-page application that dogfoods the FastVimes API:**
+
+### **Core Principle: Admin UI Uses Public API Structure**
+- **Admin UI (FastHTML)** uses the same **services and logic (DatabaseService + RQL + Ibis)** that power the public API
+- This ensures consistency and validates the public interface implementation through shared code paths
+- Admin functionality is achieved through privileged endpoints under `/admin/*` routes
+
+### **Admin UI Components**
+1. **API Explorer**: Embedded OpenAPI/Swagger UI for interactive API documentation
+2. **Table Management**: Datasette-style interface for browsing, filtering, and editing data
+3. **Configuration Management**: Pydantic settings editor for runtime configuration
+4. **HTML Fragment Viewer**: Preview HTML variants of API endpoints
+5. **Schema Browser**: Interactive database schema exploration
+
+### **Security Model**
+- **Public API**: `/api/*` - Read-only by default, configurable per-table
+- **Admin Privileged**: `/admin/*` - Write operations, configuration, system management
+- **Path-based Security**: Simple URL pattern matching for access control policies
+
+### **Data Flow Architecture**
+```
+Admin UI (FastHTML) → DatabaseService → RQL Parser → SQLGlot Queries → DuckDB
+     ↓                      ↓
+HTMX Fragments         FastAPI Routes (same services)
+```
+
+### **Admin Route Structure**
+```
+# Static HTML Interface (FastHTML-generated, overridable)
+/admin/html/                      # Dashboard static HTML
+/admin/html/schema                # Schema static page
+/admin/html/config                # Configuration static page
+
+# Dynamic API Endpoints  
+/api/*                           # Public API (normal operations)
+/api/{table}                     # Get/edit table or view data (tables and views treated identically)
+/admin/api/*                     # Admin API (privileged operations)
+/admin/api/schema                # Admin schema management API (create/drop tables/views)
+/admin/api/config                # Admin configuration API
+
+# HTMX Dynamic Loading
+Admin HTML pages → HTMX calls → /api/* (normal data)
+Admin HTML pages → HTMX calls → /admin/api/* (privileged operations)
+```
+
+### **View Management via Admin Schema API**
+- **SQL Views**: Admin schema API enables creating/dropping SQL views via `/admin/api/schema`
+- **DuckDB Integration**: Views are accessible through DuckDB connection like any table
+- **Unified Access**: Views appear in `/api/{view_name}` endpoints same as tables
+- **Admin UI**: Schema management interface provides view creation/editing capabilities
+
+### **Static File Override Strategy**
+- **FastHTML Generation**: All framework HTML generated using FastHTML
+- **Static Override**: FastHTML outputs under `/admin/html/*` are static and overridable
+- **User Customization**: Place custom HTML files in configured static directory to override defaults
+- **Precedence**: User static files > Framework-generated FastHTML
+- **CLI Export**: `static-override` command exports FastHTML output for customization
 
 ## Design Principles
 
@@ -24,14 +85,14 @@ Development commands and project info for AI assistants.
 - **Minimal code required**: Single class inheritance should handle most use cases
 
 ### 2. Security and Safety First
-- **Ibis for SQL safety**: Prevents SQL injection through safe query building
+- **SQLGlot for SQL safety**: Prevents SQL injection through safe query building and parameterization
 - **FastAPI for HTTP security**: Built-in validation, dependency injection, automatic docs
 - **Pydantic for data validation**: Type safety and automatic validation at runtime
 - **Secure defaults**: Read-only by default, explicit opt-in for write operations
 
 ### 3. Composition Over Custom Code
 - **Use library built-ins**: FastAPI's `Query()`, `Depends()`, `HTTPException` instead of custom equivalents
-- **Combine stable tools**: FastAPI + Ibis + Pydantic rather than building custom abstractions
+- **Combine stable tools**: FastAPI + SQLGlot + DuckDB + Pydantic rather than building custom abstractions
 - **Extend through services**: Add functionality via dependency injection, not inheritance
 - **Simple deployment**: Single Python file should be sufficient for basic apps
 
@@ -40,10 +101,11 @@ Development commands and project info for AI assistants.
 - **Sensible defaults**: JSON by default, HTML fragments for HTMX, automatic schema introspection
 - **Progressive enhancement**: Start with simple table access, add complexity as needed
 - **Clear boundaries**: Database operations in services, HTTP logic in endpoints, CLI in separate module
+- **API Dogfooding**: Admin interface validates the public API by consuming it internally
 
 ### 5. Testing and Development Workflow
 - **RQL-based filtering**: All tests use RQL grammar (`?eq(id,1)` or `?id=eq=1`) for consistent, simple query patterns
-- **Automated API testing**: Built-in `curl` CLI command for testing endpoints with automatic server lifecycle
+- **Automated API testing**: Built-in `httpx` CLI command for testing endpoints with automatic server lifecycle
 - **Consistent test patterns**: Use RQL operators throughout test suite for filtering, sorting, and aggregation
 - **Fast feedback loop**: Server start/stop handled automatically for API testing
 
@@ -64,11 +126,48 @@ Development commands and project info for AI assistants.
 - **Microservices**: When you need fine-grained service boundaries
 
 ### Implementation Choices
-- **Use Ibis when**: Working with table data, need SQL safety, want database portability
+- **Use SQLGlot when**: Working with table data, need SQL safety, want safe query building
 - **Add middleware when**: Cross-cutting concerns (auth, logging, rate limiting)
 - **Use dependencies when**: Per-endpoint logic, parameter validation, request parsing
 - **Extend FastVimes when**: Need to override default behavior, add global configuration
 - **Create services when**: Business logic, external integrations, complex operations
+- **Admin endpoints when**: Privileged operations (table management, configuration changes)
+- **Public API when**: External access, read operations, standard CRUD
+
+## CLI Architecture: Python vs HTTP API Testing
+
+**FastVimes CLI provides two distinct patterns for different use cases:**
+
+### 1. **Direct Python API Commands** (Efficient for daily use)
+```bash
+# These commands call Python methods directly, bypassing HTTP
+uv run fastvimes tables --db demo.db              # Direct: app.list_tables_api()
+uv run fastvimes get users --db demo.db           # Direct: app.get_table_data_api()
+uv run fastvimes post users --data '{"name":"X"}' # Direct: app.create_record_api()
+```
+- **Purpose**: Fast, efficient operations for normal usage
+- **Bypasses**: HTTP server, URL encoding, FastAPI dependencies
+- **Use when**: Regular database operations, scripting, automation
+
+### 2. **HTTP API Testing with `httpx` Command** (Tests full HTTP stack)
+```bash
+# These commands start a FastAPI server and make real HTTP requests with httpx
+uv run fastvimes httpx --db demo.db "GET /api/users?eq(id,1)"
+uv run fastvimes httpx --db demo.db "POST /api/users" --data '{"name":"Alice"}'
+uv run fastvimes httpx --db demo.db --verbose "GET /api/users/html"
+```
+- **Purpose**: Test HTTP API consistency, URL encoding, RQL parsing, FastAPI dependencies
+- **Tests**: Full HTTP stack including routing, middleware, dependency injection
+- **Use when**: Verifying API behavior, testing RQL syntax, debugging HTTP issues
+
+### 3. **Design Principle: API/CLI/HTML Consistency**
+```python
+# Same endpoints accessible three ways:
+GET /api/users/                    # JSON API (FastAPI)
+GET /api/users/html               # HTML fragments (FastHTML + HTMX)  
+fastvimes get users               # CLI (direct Python calls)
+fastvimes httpx "GET /api/users/"  # CLI HTTP testing (httpx)
+```
 
 ## Development Workflow
 
@@ -99,11 +198,11 @@ uv sync --dev
 
 **Testing and Quality Assurance:**
 ```bash
-# Run tests (primary development command)
-uv run pytest
+# Run comprehensive automated tests (primary development command)
+uv run pytest tests/test_core_functionality.py
 
 # Run with coverage
-uv run pytest --cov=fastvimes
+uv run pytest tests/test_core_functionality.py --cov=fastvimes
 
 # Format and lint (run before commits)
 uv run ruff format
@@ -111,6 +210,9 @@ uv run ruff check --fix
 
 # Type checking
 uv run mypy fastvimes/
+
+# Quick validation of core functionality
+uv run fastvimes get users --eq "active,true" --db demo.db
 ```
 
 **Local Development Server:**
@@ -127,6 +229,9 @@ uv run fastvimes tables --db demo.db
 
 # Show configuration
 uv run fastvimes config --db demo.db
+
+# Export static HTML for customization
+uv run fastvimes static-override /admin/html/tables --db demo.db
 ```
 
 **Running Examples:**
@@ -151,18 +256,22 @@ uv run fastvimes query "SELECT COUNT(*) FROM users" --format json --db demo.db
 uv run fastvimes query "SELECT * FROM users" --format csv --db demo.db
 ```
 
-**API Testing with curl:**
+**HTTP API Testing with httpx:**
 ```bash
-# Test API endpoints with automatic server management
-uv run fastvimes curl --db demo.db "GET /users"
-uv run fastvimes curl --db demo.db "GET /users?eq(id,1)"
-uv run fastvimes curl --db demo.db "POST /users" --data '{"name": "Alice"}'
-uv run fastvimes curl --db demo.db "PUT /users?eq(id,1)" --data '{"name": "Bob"}'
-uv run fastvimes curl --db demo.db "DELETE /users?eq(id,1)"
+# Test HTTP endpoints with automatic server management using httpx
+uv run fastvimes httpx --db demo.db "GET /api/users/"
+uv run fastvimes httpx --db demo.db "GET /api/users/?eq(id,1)"
+uv run fastvimes httpx --db demo.db "GET /api/users/?age=gt=25"
+uv run fastvimes httpx --db demo.db "POST /api/users" --data '{"name": "Alice"}'
+uv run fastvimes httpx --db demo.db "PUT /api/users?eq(id,1)" --data '{"name": "Bob"}'
+uv run fastvimes httpx --db demo.db "DELETE /api/users?eq(id,1)"
 
-# Advanced curl options
-uv run fastvimes curl --db demo.db --port 8001 --verbose "GET /users?limit(10)"
-uv run fastvimes curl --db demo.db --headers "Accept: text/html" "GET /users/html"
+# Test HTML endpoints for HTMX
+uv run fastvimes httpx --db demo.db "GET /api/users/html"
+uv run fastvimes httpx --db demo.db --headers "Accept: text/html" "GET /api/users/html"
+
+# Advanced options with verbose output
+uv run fastvimes httpx --db demo.db --port 8001 --verbose "GET /api/users/?limit=10"
 ```
 
 ### Development Best Practices
@@ -176,9 +285,9 @@ uv run fastvimes curl --db demo.db --headers "Accept: text/html" "GET /users/htm
 ## Key Dependencies
 
 - **FastAPI**: HTTP framework and dependency injection
-- **FastHTML (python-fasthtml)**: HTML generation and form system (auto-generated from Pydantic models)
+- **FastHTML (python-fasthtml)**: HTML generation
 - **Typer**: CLI framework
-- **Ibis**: Data abstraction layer
+- **SQLGlot**: SQL query building and parsing
 - **DuckDB**: Database backend
 - **pydantic-settings**: Configuration management with full-depth env vars
 - **Uvicorn**: ASGI server
@@ -187,15 +296,11 @@ uv run fastvimes curl --db demo.db --headers "Accept: text/html" "GET /users/htm
 
 **Implementation details specific to FastVimes:**
 
-- **URL patterns**: `/{table}` for JSON, `/{table}/html` for HTML fragments
-- **Primary key handling**: Auto-detect from schema, fallback to rowid if configurable
-- **Environment variables**: Full-depth nesting (`FASTVIMES_TABLES_USERS_MODE=readwrite`)
-- **HTML introspection**: Instant app setup from database + HTML folder structure
-- **CDN dependencies**: Bulma 1.0.4, HTMX 2.0.6, Font Awesome 5.15.4 via unpkg
-- **DuckDB-only**: Backend with extension support for other databases
-- **HTML error handling**: Errors embedded in HTML response with Bulma styling (JSON/CLI use FastAPI/Typer defaults)
-- **Customization**: Override via `static/header_include.html` and CSS files
-- **Views pattern**: Use database views for complex queries vs complex API parameters
+- **URL patterns**: Clear separation of API and UI endpoints
+  - `/api/{table}` - JSON API endpoints for table data
+  - `/api/{table}/html` - HTML table views for public access
+- **Admin interface**: `/admin` with HTMX-powered WCAG compliant interface
+- **DuckDB-only**: Backend can attach other databases and object stores via extensions
 
 ## Project Structure
 
@@ -204,8 +309,8 @@ fastvimes/
 ├── __init__.py          # Main FastVimes class export
 ├── app.py               # FastVimes class implementation
 ├── cli.py               # Typer CLI commands
-├── endpoints.py         # Auto-generated API endpoints
-├── forms.py             # Auto-generate FastHTML forms from Ibis schemas
+
+├── forms.py             # Auto-generate FastHTML forms from DuckDB schemas
 ├── config.py            # pydantic-settings configuration schema
 ├── middleware.py        # Authentication and identity middleware
 ├── admin/               # Static admin HTML files (overridable by app devs)
@@ -234,30 +339,30 @@ fastvimes/
 ### RQL Syntax Examples
 ```bash
 # Basic filtering
-GET /users?eq(id,123)           # id equals 123
-GET /users?lt(age,30)           # age less than 30
-GET /users?contains(name,alice) # name contains "alice"
+GET /api/users?eq(id,123)           # id equals 123
+GET /api/users?lt(age,30)           # age less than 30
+GET /api/users?contains(name,alice) # name contains "alice"
 
 # FIQL syntax sugar (alternative)
-GET /users?id=eq=123            # Same as eq(id,123)
-GET /users?age=lt=30            # Same as lt(age,30)
+GET /api/users?id=eq=123            # Same as eq(id,123)
+GET /api/users?age=lt=30            # Same as lt(age,30)
 
 # Logical operations
-GET /users?and(eq(active,true),gt(age,18))  # active AND age > 18
-GET /users?or(eq(role,admin),eq(role,mod))  # role is admin OR mod
+GET /api/users?and(eq(active,true),gt(age,18))  # active AND age > 18
+GET /api/users?or(eq(role,admin),eq(role,mod))  # role is admin OR mod
 
 # Set operations
-GET /users?in(id,(1,2,3))       # id in [1,2,3]
-GET /users?out(status,(banned,deleted))    # status not in [banned,deleted]
+GET /api/users?in(id,(1,2,3))       # id in [1,2,3]
+GET /api/users?out(status,(banned,deleted))    # status not in [banned,deleted]
 
 # Sorting and limiting
-GET /users?sort(+name,-created_at)         # Sort by name ASC, created_at DESC
-GET /users?limit(10,20)                    # Skip 20, take 10 (pagination)
+GET /api/users?sort(+name,-created_at)         # Sort by name ASC, created_at DESC
+GET /api/users?limit(10,20)                    # Skip 20, take 10 (pagination)
 
 # Selection and aggregation
-GET /users?select(id,name,email)           # Only return these fields
-GET /users?count()                         # Return count only
-GET /users?aggregate(department,count)     # Group by department with counts
+GET /api/users?select(id,name,email)           # Only return these fields
+GET /api/users?count()                         # Return count only
+GET /api/users?aggregate(department,count)     # Group by department with counts
 ```
 
 ### OpenAPI Integration
@@ -282,20 +387,55 @@ class FastVimesSettings(BaseSettings):
 
 **Data Flow:**
 ```python
-# Ibis connection pattern
+# SQLGlot + DuckDB connection pattern
 app = FastVimes(db_path="data.db")
 users = app.connection.table("users")
 
 # FastAPI endpoint auto-generation
-@app.get("/users")  # JSON response
-@app.get("/users/html")  # HTML fragment
+@app.get("/api/users")      # JSON API endpoint
+@app.get("/api/users/html")     # HTML table view
+
+# Admin UI uses the same services as the public API
+# Admin FastHTML components use DatabaseService directly
+# This validates the public API through shared implementation
 
 # RQL-style query examples:
-# GET /users?eq(id,123)
-# GET /users?id=eq=123
-# GET /users?contains(name,alice)
-# GET /users?eq(active,true)
-# GET /users?in(id,(1,2,3))
+# GET /api/users?eq(id,123)
+# GET /api/users?id=eq=123
+# GET /api/users?contains(name,alice)
+# GET /api/users?eq(active,true)
+# GET /api/users?in(id,(1,2,3))
+```
+
+**Admin UI Implementation:**
+```python
+# Admin UI uses the same services as public API
+# FastHTML components use DatabaseService directly, not HTTP requests
+
+# Example: Admin static HTML page
+@admin_router.get("/admin/html/tables")
+def admin_tables_page():
+    # Generate static FastHTML page (overridable by user)
+    page = html_generator.generate_tables_page()
+    return html_generator.render_to_string(page)
+
+# Example: Admin privileged API endpoint  
+@admin_router.get("/admin/api/tables")
+def admin_tables_api(db_service: DatabaseService = Depends(get_db_service)):
+    # Admin API uses the same service as public API
+    tables = db_service.list_tables()  # Same method used by /api/tables
+    return {"tables": tables}  # JSON for HTMX consumption
+
+# Example: Admin config management API
+@admin_router.post("/admin/api/config")
+def admin_update_config(settings: FastVimesSettings):
+    # Privileged operation: update runtime configuration
+    app.config = settings
+    return {"status": "updated"}
+
+# Data flow:
+# /admin/html/tables (static HTML) → HTMX calls → /admin/api/tables (JSON)
+# /api/tables (public) and /admin/api/tables (privileged) use same service
 ```
 
 ## Code Style

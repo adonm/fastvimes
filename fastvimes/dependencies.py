@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import Depends, Query, Request
 
-from .rql import RQLFilter, parse_rql_params
+from .rql_sqlglot import parse_rql_params
 
 
 class QueryParams:
@@ -12,7 +12,6 @@ class QueryParams:
 
     def __init__(self, request: Request):
         self.request = request
-        self.filter_parser = RQLFilter()
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -54,7 +53,7 @@ def get_filters(
     query_params: QueryParams = Depends(get_query_params),
 ) -> dict[str, Any]:
     """FastAPI dependency to inject RQL-style filters."""
-    return query_params.filters["filters"]
+    return query_params.filters
 
 
 def get_pagination(

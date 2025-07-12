@@ -232,16 +232,4 @@ class FormGenerator:
             return str(element)
 
 
-def generate_form_for_table(
-    app: Any,
-    table_name: str,
-    action: str,
-    method: str = "POST",
-    data: dict[str, Any] | None = None,
-) -> str:
-    """Convenience function to generate a form for a database table."""
 
-    model = app.get_table_dataclass(table_name)
-    generator = FormGenerator(app)
-
-    return generator.generate_form(model=model, action=action, method=method, data=data)
