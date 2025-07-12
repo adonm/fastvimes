@@ -60,15 +60,14 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
 markers = [
-    "python_api: Python API interface tests",
-    "cli: CLI interface tests (requires uv and fastvimes commands)",  
-    "http: HTTP interface tests (FastAPI TestClient)",
-    "slow: Slow tests that use subprocess or file operations"
+    "python_api: Python API interface tests (fast)",
+    "cli: CLI interface tests (slow - uses subprocess)",  
+    "http: HTTP interface tests (fast)",
+    "slow: Slow tests that use subprocess or file operations",
+    "fast: Fast tests for regular development (python_api + http)"
 ]
 
 

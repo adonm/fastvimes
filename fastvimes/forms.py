@@ -230,6 +230,3 @@ class FormGenerator:
             return element.render()
         else:
             return str(element)
-
-
-

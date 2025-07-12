@@ -23,12 +23,13 @@ Development commands and project info for AI assistants.
 - This ensures consistency and validates the public interface implementation through shared code paths
 - Admin functionality is achieved through privileged endpoints under `/admin/*` routes
 
-### **Admin UI Components**
-1. **API Explorer**: Embedded OpenAPI/Swagger UI for interactive API documentation
-2. **Table Management**: Datasette-style interface for browsing, filtering, and editing data
-3. **Configuration Management**: Pydantic settings editor for runtime configuration
-4. **HTML Fragment Viewer**: Preview HTML variants of API endpoints
-5. **Schema Browser**: Interactive database schema exploration
+### **Admin UI Components (Current Implementation)**
+1. **Portal Dashboard**: HTMX-driven main interface with Gruvbox dark theme
+2. **Table Browser**: Datasette-style sidebar navigation with mode indicators (🔒 readonly, ✏️ readwrite)
+3. **Table Viewer**: Interactive data display with RQL filtering and pagination
+4. **API Explorer**: Embedded FastAPI/Swagger UI iframe for interactive API testing
+5. **SQL Query Interface**: Direct DuckDB query execution with syntax highlighting
+6. **Fragment Optimization**: Smart HTMX detection for lightweight responses
 
 ### **Security Model**
 - **Public API**: `/api/*` - Read-only by default, configurable per-table
@@ -42,23 +43,27 @@ Admin UI (FastHTML) → DatabaseService → RQL Parser → SQLGlot Queries → D
 HTMX Fragments         FastAPI Routes (same services)
 ```
 
-### **Admin Route Structure**
+### **Admin Route Structure (Current Implementation)**
 ```
-# Static HTML Interface (FastHTML-generated, overridable)
-/admin/html/                      # Dashboard static HTML
-/admin/html/schema                # Schema static page
-/admin/html/config                # Configuration static page
+# Main Portal
+/admin                           # HTMX-driven admin portal with Gruvbox theme
 
-# Dynamic API Endpoints  
-/api/*                           # Public API (normal operations)
-/api/{table}                     # Get/edit table or view data (tables and views treated identically)
-/admin/api/*                     # Admin API (privileged operations)
-/admin/api/schema                # Admin schema management API (create/drop tables/views)
-/admin/api/config                # Admin configuration API
+# HTMX Fragments (with standalone fallback)
+/admin/tables                    # Table browser sidebar (fragment + standalone)
+/admin/table/{table_name}        # Table data viewer with RQL filtering
+/admin/docs                      # Embedded FastAPI docs iframe
+/admin/query                     # SQL query interface (GET form)
+/admin/query                     # SQL query execution (POST results)
 
-# HTMX Dynamic Loading
-Admin HTML pages → HTMX calls → /api/* (normal data)
-Admin HTML pages → HTMX calls → /admin/api/* (privileged operations)
+# Public API (used by admin)
+/api/*                          # Public API (normal operations)
+/api/{table}                    # Get/edit table or view data
+/api/{table}/html               # HTML views of table data
+
+# HTMX Fragment Detection
+- HX-Request header present: Return lightweight fragments
+- Direct access: Return full HTML with Gruvbox styling
+- Eliminates CSS/JS duplication anti-patterns
 ```
 
 ### **View Management via Admin Schema API**
@@ -108,6 +113,25 @@ Admin HTML pages → HTMX calls → /admin/api/* (privileged operations)
 - **Automated API testing**: Built-in `httpx` CLI command for testing endpoints with automatic server lifecycle
 - **Consistent test patterns**: Use RQL operators throughout test suite for filtering, sorting, and aggregation
 - **Fast feedback loop**: Server start/stop handled automatically for API testing
+
+## Core Focus Areas for Contributors
+
+**Priority 1: Database API Core (80% of effort)**
+- RQL query language enhancements
+- SQLGlot type safety and query building
+- DuckDB performance and schema introspection
+- Auto-generation from database schemas
+
+**Priority 2: Developer Experience (15% of effort)**  
+- Error handling and debugging
+- Testing infrastructure and CLI workflow
+- Documentation and examples
+- FastAPI integration patterns
+
+**Priority 3: Admin Interface (5% of effort)**
+- Security and data management only
+- Use Bulma CSS defaults, no custom styling
+- Focus on functionality over visual polish
 
 ## Decision Framework
 
@@ -198,17 +222,20 @@ uv sync --dev
 
 **Testing and Quality Assurance:**
 ```bash
-# Run comprehensive automated tests (primary development command)
-uv run pytest tests/test_core_functionality.py
+# Fast checks for regular development (recommended)
+uv run pytest -m fast                    # Run only fast tests (~10 seconds)
+uv run ruff format && uv run ruff check  # Format and lint
 
-# Run with coverage
-uv run pytest tests/test_core_functionality.py --cov=fastvimes
+# Full test suite (run before commits)
+uv run pytest                           # All tests including slow CLI tests (~20 seconds)
+uv run pytest --cov=fastvimes          # With coverage report
 
-# Format and lint (run before commits)
-uv run ruff format
-uv run ruff check --fix
+# Specific test categories
+uv run pytest -m python_api            # Python API tests only
+uv run pytest -m http                  # HTTP API tests only 
+uv run pytest -m "not slow"            # Skip slow subprocess tests
 
-# Type checking
+# Type checking (optional)
 uv run mypy fastvimes/
 
 # Quick validation of core functionality

@@ -1,27 +1,6 @@
 # FastVimes
 
-Lightweight composition of FastAPI and DuckDB for building data tools with automatic CLI, web API, and HTML interfaces.
-
-## Design Philosophy
-
-FastVimes is designed as a **lightweight composition** of stable, well-established libraries:
-
-- **FastAPI** for HTTP framework and dependency injection
-- **SQLGlot** for safe SQL query building and parsing
-- **DuckDB** for high-performance analytics database
-- **Pydantic** for configuration and data validation
-- **Typer** for CLI interface
-
-The goal is to provide clean, inherited APIs from these dependencies while adding minimal abstraction.
-
-## Features
-
-- **Auto-generated APIs** from DuckDB schemas with RQL query language
-- **Type-safe queries** using SQLGlot (no SQL injection vulnerabilities)
-- **Admin interface** with HTMX-powered table management at `/admin`
-- **Multiple interfaces**: CLI, OpenAPI/Swagger, HTML forms
-- **Instant setup**: Point at database + HTML folder and run
-- **Clean architecture** with service-based design
+**Instant database APIs** - Point at any DuckDB database and get automatic REST APIs, CLI tools, and admin interface.
 
 ## Quick Start
 
@@ -50,51 +29,42 @@ Requires uv (which handles Python 3.13+ automatically)
 uv add fastvimes
 ```
 
-## Three Ways to Use
+## Features
+
+- **Auto-generated APIs** from DuckDB schemas with RQL query language
+- **Type-safe queries** using SQLGlot (no SQL injection vulnerabilities)  
+- **Admin interface** with HTMX-powered table management at `/admin`
+- **Multiple interfaces**: CLI, OpenAPI/Swagger, HTML forms
+- **Instant setup**: Point at database and run
+
+## Usage Patterns
 
 ### 1. Instant App
 ```python
-from fastvimes import FastVimes
-
 # Point at database, get instant APIs
 app = FastVimes(db_path="data.db")
-# Generates: GET/POST /users, GET/POST /products, etc.
-# Admin interface: /admin
-# OpenAPI docs: /docs
+# Auto-generates: GET/POST /api/users, /api/products, etc.
+# Admin interface: /admin | OpenAPI docs: /docs
 ```
 
-### 2. Custom Configuration
+### 2. Custom Configuration  
 ```python
-from fastvimes import FastVimes
-
 app = FastVimes(
     db_path="data.db",
     extensions=["spatial", "httpfs"],
     read_only=False
 )
-# All tables writable, extensions loaded
 ```
 
-### 3. Custom Endpoints (FastAPI-style)
+### 3. Custom Endpoints (Standard FastAPI)
 ```python
-from fastvimes import FastVimes
-
 app = FastVimes(db_path="data.db")
 
 @app.get("/dashboard")
 def dashboard():
-    # Direct SQL query access
     return app.db_service.execute_query(
         "SELECT SUM(amount) as total_sales FROM sales"
     )
-
-@app.get("/custom/{table_name}")
-def custom_query(table_name: str):
-    # Type-safe table access with SQLGlot
-    from sqlglot import select
-    from sqlglot.expressions import Table
-    sql = select("*").from_(Table(this=table_name)).limit(100).sql(dialect="duckdb")
-    return app.db_service.execute_query(sql)
 ```
 
 ## RQL Query Language
@@ -121,102 +91,121 @@ curl -X DELETE "http://localhost:8000/api/users?eq(id,1)"
 curl "http://localhost:8000/users/html"
 ```
 
-## CLI Testing
-
-Test API endpoints with automatic server management:
-
-```bash
-# Test with built-in curl command
-fastvimes curl --db mydata.db "GET /api/users"
-fastvimes curl --db mydata.db "GET /api/users?eq(id,1)"
-fastvimes curl --db mydata.db "POST /api/users" --data '{"name": "Alice"}'
-fastvimes curl --db mydata.db "PUT /api/users?eq(id,1)" --data '{"name": "Bob"}'
-fastvimes curl --db mydata.db "DELETE /api/users?eq(id,1)"
-
-# Other CLI commands
-fastvimes serve --db mydata.db
-fastvimes init --db mydata.db
-fastvimes tables --db mydata.db
-fastvimes query "SELECT * FROM users" --db mydata.db
-
-# Export static HTML for customization
-fastvimes static-override /admin/tables --db mydata.db
-```
-
 ## Admin Interface
 
-FastVimes includes a built-in admin interface at `/admin` with:
+Built-in admin interface at `/admin` for database management:
 
-- **Dashboard**: Overview of your database and tables
-- **Tables**: Browse, filter, and manage all database tables
-- **Schema**: View and inspect table schemas
-- **Configuration**: Manage application settings
+- **Table Browser**: View, filter, and manage all database tables
+- **SQL Query**: Direct database access with syntax highlighting  
+- **API Explorer**: Embedded OpenAPI/Swagger documentation
+- **Configuration**: Runtime settings management
 
-### Admin Features
-
-- **FastHTML-generated**: All HTML generated in Python using FastHTML
-- **Static-first**: Base templates are static HTML, HTMX adds dynamic capabilities
-- **Customizable**: Export any page as static HTML for customization
-- **HTMX-powered**: Table views load as fragments without page refreshes
-- **Interactive table management**: View data, HTML representations, and schemas
-- **Responsive design**: Built with Bulma CSS framework
-
-Access the admin interface by visiting `http://localhost:8000/admin` when your FastVimes application is running.
-
-### Customizing Admin Interface
+## CLI & Testing
 
 ```bash
-# Export any admin page as static HTML
-fastvimes static-override /admin/tables --output ./my-templates
-fastvimes static-override /admin --output ./my-templates
-fastvimes static-override /admin/fragments/tables --output ./my-templates
+# Start server
+fastvimes serve --db mydata.db
 
-# Customize the exported HTML files
-# Place them in your static directory to override defaults
+# Test API endpoints (automatic server management)
+fastvimes curl --db mydata.db "GET /api/users?eq(id,1)"
+fastvimes curl --db mydata.db "POST /api/users" --data '{"name": "Alice"}'
+
+# Database operations
+fastvimes tables --db mydata.db
+fastvimes query "SELECT * FROM users" --db mydata.db
 ```
+
+## Architecture
+
+FastVimes is a **lightweight composition** of stable libraries:
+
+- **FastAPI** - HTTP framework and dependency injection
+- **SQLGlot** - Safe SQL query building and parsing  
+- **DuckDB** - High-performance analytics database
+- **Pydantic** - Configuration and data validation
+- **Typer** - CLI interface
+
+**Goal**: Clean, inherited APIs with minimal abstraction.
 
 ## Documentation
 
-- [Simple Tutorial](docs/simple.md) - Get started in 5 minutes
-- [Advanced Usage](docs/advanced.md) - API extensions and complex configurations
-- [Customization Guide](docs/customization.md) - HTMX fragments, styling, and UI customization
-- [Manual Testing Guide](docs/manual-testing.md) - Step-by-step testing procedures
+See [AGENT.md](AGENT.md) for development commands and detailed architecture.
 
-For a complete overview, see the [docs/README.md](docs/README.md).
+## Contributing
 
-## Development
+FastVimes follows these core priorities for new contributors:
 
-See [AGENT.md](AGENT.md) for development commands.
+### Priority 1: Core Database API Functionality
+- **RQL query language** enhancements and new operators
+- **Type safety** improvements with SQLGlot integration  
+- **Performance** optimizations for DuckDB operations
+- **Schema introspection** and auto-generation features
 
-### Backlog
+### Priority 2: Developer Experience
+- **Error handling** and debugging capabilities
+- **Testing** infrastructure and example applications
+- **Documentation** for API patterns and extensions
+- **CLI** command improvements and workflow optimization
 
-DONE:
-- ✅ Admin HTMX integration for table views
-- ✅ Admin interface documentation
-- ✅ Clarify URL patterns: Move to `/api/*` for JSON endpoints, clean up admin routes
-- ✅ Standardize admin HTML fragments: `/admin/fragments/*` pattern
-- ✅ Consistent endpoint naming: Remove `/data/{table}/html` confusion
-- ✅ FastHTML-based HTML generation throughout
-- ✅ Static-override CLI command for customization
-- ✅ Static-first architecture with HTMX for dynamic capabilities
+### Priority 3: Admin Interface (when needed)
+- **Security** path-based access control
+- **Data management** core functionality only
+- **Configuration** runtime settings management
 
-TODO:
-**Design Improvements:**
-- 🏗️ Separate admin fragments from public API endpoints (completed in URL restructure)
-- Update bulma css to be themed like gruvbox with light/dark modes by default
+### Not Currently Prioritized
+- CSS/styling enhancements (use Bulma defaults)
+- Mobile responsive design (desktop-first for data tools)
+- Complex UI animations or visual polish
+- WCAG compliance beyond basic accessibility
 
-**Features:**
-- 📋 Add OpenAPI page to admin with FastAPI Swagger UI using HTMX
-- 🗃️ Implement Datasette-style table management interface  
-- ⚙️ Add Pydantic configuration editor for runtime settings
-- 🔍 Add HTML fragment viewer for API endpoint previews
-- 🎨 Improve admin HTML for WCAG 2.2+ compliance with tests
-- 📊 Add complexity and test coverage reporting
-- 🔍 Review development methodology for maturity improvements
+New contributors should focus on **database API functionality** and **developer experience** rather than UI polish.
 
-**Architecture:**
-- 🏗️ Separate admin fragments from public API endpoints (completed)
-- 🔄 Update AGENT.md with clarified URL patterns (completed)
-- 📝 Update documentation to match new URL structure (completed)
-- 🔐 Implement admin UI consumption of public API endpoints (API dogfooding)
-- 🔒 Implement path-based security for admin vs public routes
+## Stability & Versioning
+
+FastVimes follows **semantic versioning** with these compatibility guarantees:
+
+- **Major versions** (1.x → 2.x): Breaking changes to core APIs
+- **Minor versions** (1.1 → 1.2): New features, backwards compatible
+- **Patch versions** (1.1.1 → 1.1.2): Bug fixes only
+
+**Stable APIs** (will not change without major version bump):
+- `FastVimes` class constructor parameters
+- Core HTTP endpoints (`/api/{table}`, `/admin`)
+- RQL query language operators
+- CLI command interface
+
+**Extension-safe patterns** (guaranteed stable):
+```python
+# Safe: Inherit and override methods
+class MyApp(FastVimes):
+    def get_custom_endpoint(self):
+        return self.db_service.execute_query("SELECT ...")
+
+# Safe: Add routes using FastAPI patterns  
+@app.get("/dashboard")
+def dashboard(db_service: DatabaseService = Depends(app.get_db_service)):
+    return db_service.execute_query("SELECT ...")
+```
+
+## Production Use
+
+**Error Handling:**
+```python
+from fastvimes import FastVimes
+from fastvimes.exceptions import DatabaseError, ValidationError
+
+app = FastVimes(db_path="prod.db")
+
+@app.exception_handler(DatabaseError)
+def handle_db_error(request, exc):
+    return {"error": "Database unavailable", "code": 500}
+```
+
+**Testing Extensions:**
+```python
+def test_custom_endpoint():
+    app = FastVimes(db_path=":memory:")
+    client = TestClient(app)
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+```
