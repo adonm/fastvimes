@@ -1,159 +1,183 @@
 # FastVimes
 
-Lightweight composition of FastAPI and Ibis for building data tools with automatic CLI, web API, and HTML interfaces.
+**Auto-Generated Datasette-Style Apps with NiceGUI + DuckDB**
 
-## Design Philosophy
+Zero-config reactive web apps from any database. Point at DuckDB → get instant Datasette-style interface with tables, forms, charts, and API → incrementally override components for custom functionality.
 
-FastVimes is designed as a **lightweight composition** of stable, well-established libraries:
-
-- **FastAPI** for HTTP framework and dependency injection
-- **Ibis** for database abstraction and safe query building
-- **Pydantic** for configuration and data validation
-- **Typer** for CLI interface
-- **DuckDB** as the primary database backend
-
-The goal is to provide clean, inherited APIs from these dependencies while adding minimal abstraction.
-
-## Features
-
-- **Auto-generated APIs** from DuckDB schemas with RQL query language
-- **Type-safe queries** using Ibis (no SQL injection vulnerabilities)
-- **Admin interface** for Django-style table management
-- **Multiple interfaces**: CLI, OpenAPI/Swagger, HTML forms
-- **Instant setup**: Point at database + HTML folder and run
-- **Clean architecture** with service-based design
-
-## Quick Start
-
-```python
-from fastvimes import FastVimes
-
-# Start with existing database - auto-generates APIs
-app = FastVimes(db_path="data.db")
-
-# Add custom endpoints using familiar FastAPI + Ibis patterns
-@app.get("/users")
-def get_users():
-    return app.connection.table("users").execute()
-
-# Run with convenience method or uvicorn (standard FastAPI)
-if __name__ == "__main__":
-    app.run()  # Simple: defaults to 127.0.0.1:8000
-    # Or: app.run(host="0.0.0.0", port=8080, reload=True)
-```
-
-## Installation
-
-Requires uv (which handles Python 3.13+ automatically)
+## ✨ Quick Start
 
 ```bash
-uv add fastvimes
+# Instant demo with sample data (no setup required!)
+uv run fastvimes serve
+
+# Or point at your own DuckDB
+uv run fastvimes serve --db my_data.db
 ```
 
-## Three Ways to Use
+**That's it!** Opens reactive web interface at `http://localhost:8000` with:
+- 📊 Interactive table browser and data explorer
+- 📝 Auto-generated forms for CRUD operations  
+- 🔍 Advanced filtering and search
+- 🌐 REST API with RQL query language
+- 📖 Embedded API documentation
 
-### 1. Instant App
-```python
-from fastvimes import FastVimes
+## 🎯 Core Concept
 
-# Point at database, get instant APIs
-app = FastVimes(db_path="data.db")
-# Generates: GET/POST /users, GET/POST /products, etc.
-# Admin interface: /admin
-# OpenAPI docs: /docs
-```
+**Default Setup**: Uses in-memory DuckDB with sample data for zero-config startup.  
+**Production**: Point at persistent DuckDB files or DuckLake with PostgreSQL/MySQL catalog for multi-user access.
 
-### 2. Custom Configuration
-```python
-from fastvimes import FastVimes
+## 🚀 Installation
 
-app = FastVimes(
-    db_path="data.db",
-    extensions=["spatial", "httpfs"],
-    read_only=False
-)
-# All tables writable, extensions loaded
-```
-
-### 3. Custom Endpoints (FastAPI-style)
-```python
-from fastvimes import FastVimes
-
-app = FastVimes(db_path="data.db")
-
-@app.get("/dashboard")
-def dashboard():
-    # Direct Ibis connection access
-    return app.connection.table("sales").aggregate(
-        total_sales=app.connection.table("sales").amount.sum()
-    ).execute()
-
-@app.get("/custom/{table_name}")
-def custom_query(table_name: str):
-    # Type-safe table access
-    table = app.connection.table(table_name)
-    return table.limit(100).execute()
-```
-
-## RQL Query Language
-
-FastVimes uses RQL (Resource Query Language) for filtering and data access:
+Requires [uv](https://github.com/astral-sh/uv) (which handles Python 3.13+ automatically):
 
 ```bash
-# Get all users
-curl "http://localhost:8000/users"
-
-# Get specific user
-curl "http://localhost:8000/users?eq(id,1)"
-
-# Advanced filtering
-curl "http://localhost:8000/users?and(gt(age,25),eq(role,admin))"
-curl "http://localhost:8000/users?contains(name,John)"
-curl "http://localhost:8000/users?in(id,(1,2,3))"
-
-# Update/Delete using filters
-curl -X PUT "http://localhost:8000/users?eq(id,1)" -d '{"name": "New Name"}'
-curl -X DELETE "http://localhost:8000/users?eq(id,1)"
+git clone https://github.com/adonm/fastvimes
+cd fastvimes
+uv sync
 ```
 
-## CLI Testing
+## 🎨 Incremental Customization
 
-Test API endpoints with automatic server management:
+Start with auto-generated interface, selectively override components:
+
+```python
+from fastvimes import FastVimes
+
+# Auto-generated base interface
+app = FastVimes(db_path="data.db")
+app.serve()  # Gets full Datasette-style interface
+
+# Incremental customization
+class MyApp(FastVimes):
+    def table_component(self, table_name: str):
+        if table_name == "users":
+            return custom_user_table()  # Custom component
+        return super().table_component(table_name)  # Default for others
+        
+    def form_component(self, table_name: str):
+        if table_name == "orders":
+            return custom_order_form()  # Custom form logic
+        return super().form_component(table_name)  # Auto-generated forms
+
+MyApp().serve()
+```
+
+## 🔧 CLI Commands
 
 ```bash
-# Test with built-in curl command
-fastvimes curl --db mydata.db "GET /users"
-fastvimes curl --db mydata.db "GET /users?eq(id,1)"
-fastvimes curl --db mydata.db "POST /users" --data '{"name": "Alice"}'
-fastvimes curl --db mydata.db "PUT /users?eq(id,1)" --data '{"name": "Bob"}'
-fastvimes curl --db mydata.db "DELETE /users?eq(id,1)"
+# Zero-config startup
+uv run fastvimes serve                    # Instant demo with sample data
+uv run fastvimes serve --db prod.db       # Production database
 
-# Other CLI commands
-fastvimes serve --db mydata.db
-fastvimes init --db mydata.db
-fastvimes tables --db mydata.db
-fastvimes query "SELECT * FROM users" --db mydata.db
+# Database operations  
+uv run fastvimes meta tables              # List all tables
+uv run fastvimes meta schema users        # Show table schema
+uv run fastvimes data get users           # Get table data with RQL filtering
+uv run fastvimes init newdb.db            # Create database with sample data
+
+# API testing (automatic server lifecycle)
+uv run fastvimes httpx "GET /api/v1/meta/tables"
+uv run fastvimes httpx "GET /api/v1/data/users?eq(id,1)"
+uv run fastvimes httpx "POST /api/v1/data/users" --data '{"name": "Alice"}'
 ```
 
-## Documentation
+## 🔍 RQL Query Language
 
-- [Simple Tutorial](docs/simple.md) - Get started in 5 minutes
-- [Advanced Usage](docs/advanced.md) - API extensions and complex configurations
-- [Customization Guide](docs/customization.md) - HTMX fragments, styling, and UI customization
-- [Manual Testing Guide](docs/manual-testing.md) - Step-by-step testing procedures
+Consistent, simple REST API querying:
 
-For a complete overview, see the [docs/README.md](docs/README.md).
+```bash
+# Basic filtering
+GET /api/users?eq(id,123)           # id equals 123
+GET /api/users?lt(age,30)           # age less than 30
+GET /api/users?contains(name,alice) # name contains "alice"
 
-## Development
+# FIQL syntax sugar (alternative)
+GET /api/users?id=eq=123            # Same as eq(id,123)
 
-See [AGENT.md](AGENT.md) for development commands.
+# Logical operations
+GET /api/users?and(eq(active,true),gt(age,18))  # active AND age > 18
 
-### Backlog
+# Set operations and sorting
+GET /api/users?in(id,(1,2,3))                  # id in [1,2,3]
+GET /api/users?sort(+name,-created_at)         # Sort by name ASC, created_at DESC
+GET /api/users?limit(10,20)                    # Skip 20, take 10 (pagination)
+```
 
-DONE:
+## 🏗️ Architecture
 
-TODO:
-- add an openapi page to the admin that includes the fastapi swagger ui using htmx, update design in agent.md
-- improve overall admin html so that its wcag 2.2+ compliant, add relevant tests and update design in agent.md
-- work out a way to report on complexity and test coverage
-- review development methodology and see if we can improve to ensure maturity as we go
+**Auto-generated reactive interfaces with incremental customization:**
+
+- **NiceGUI**: Reactive Vue.js-based components for real-time updates
+- **DuckDB**: High-performance analytical database for development/single-user
+- **DuckLake**: Production multi-user capabilities with ACID guarantees
+- **FastAPI**: Auto-generated REST endpoints with OpenAPI docs
+- **SQLGlot**: Type-safe query building (prevents SQL injection)
+
+**Data Flow:**
+```
+NiceGUI components → DatabaseService → RQL Parser → SQLGlot → DuckDB/DuckLake
+```
+
+## 📊 Features
+
+### MVP (Phase 1)
+- ✅ **Zero-config startup**: Instant demo with sample data
+- ✅ **Auto-generated interface**: Tables, forms, navigation from schema
+- ✅ **Basic CRUD**: Create, read, update, delete operations
+- ✅ **CLI tools**: Database management and API testing
+
+### Enhanced Features (Phase 2-4)
+- ✅ **RQL filtering**: Advanced query language in API (Phase 2 complete)
+- 🔄 **RQL UI integration**: Query builder components (Phase 3 in progress)
+- 🎨 **Chart generation**: Auto-generated plots from data types (Phase 3)
+- 🌐 **Multi-user**: Concurrent access via DuckLake with PostgreSQL/MySQL catalogs (Phase 4)
+
+## 📈 Development Status
+
+**Current**: Phase 2 (RQL Integration) Complete, Phase 3 (Enhanced NiceGUI) In Progress - See [BACKLOG.md](BACKLOG.md) for detailed roadmap
+
+**Phase 2 Achievements**:
+- ✅ RQL query language with pyrql + SQLGlot integration
+- ✅ Single source of truth architecture via DatabaseService
+- ✅ Comprehensive test coverage for core functionality
+- ✅ Multi-format export support (JSON, CSV, Parquet)
+
+## 🎯 Use Cases
+
+**Perfect for:**
+- 📊 Data exploration and analytics dashboards
+- 🛠️ Internal admin tools and CRUD applications
+- 🚀 Rapid prototyping with database-driven apps
+- 👥 Small team collaboration on shared datasets
+
+**Not ideal for:**
+- 🏢 High-frequency trading or real-time systems
+- 📱 Consumer-facing mobile applications
+- 🎮 Complex business logic with multi-step workflows
+- 🗄️ Non-tabular data (document stores, graph databases)
+
+## 📚 Documentation
+
+- [AGENT.md](AGENT.md) - Development commands and architecture details
+- [BACKLOG.md](BACKLOG.md) - Detailed development roadmap and phases
+
+## 🤝 Contributing
+
+**Priority 1: Database API Core (80% of effort)**
+- RQL query language enhancements
+- SQLGlot type safety and query building
+- DuckDB performance and schema introspection
+
+**Priority 2: Developer Experience (15% of effort)**
+- Error handling and debugging
+- Testing infrastructure and CLI workflow
+- Documentation and examples
+
+**Priority 3: NiceGUI Interface (5% of effort)**
+- Auto-generated components from schema
+- Override patterns for customization
+- Focus on functionality over visual polish
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details.

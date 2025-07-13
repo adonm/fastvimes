@@ -1,249 +1,380 @@
-"""FastVimes: Lightweight composition of FastAPI and Ibis for data tools."""
+"""FastVimes main application class with NiceGUI + DuckLake integration."""
 
-import logging
+import tempfile
+import atexit
+import shutil
+from pathlib import Path
+from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.exceptions import HTTPException
+from nicegui import ui, app
+from fastapi import FastAPI
 
 from .config import FastVimesSettings
-from .endpoints import EndpointGenerator
-from .forms import FormGenerator
-from .services import AdminService, DatabaseService, StaticFilesService
+from .database_service import DatabaseService
+from .api_client import FastVimesAPIClient
+from .components.table_browser import TableBrowser
+from .components.data_explorer import DataExplorer
+from .components.form_generator import FormGenerator
 
-logger = logging.getLogger(__name__)
 
-
-class FastVimes(FastAPI):
-    """
-    FastVimes: Lightweight composition of FastAPI and Ibis for data tools.
-
-    Inherits from FastAPI to provide all FastAPI functionality while adding
-    database introspection, automatic API generation, and admin interface.
-
-    Design Philosophy:
-    - Lightweight composition of stable dependencies (FastAPI, Ibis, Pydantic)
-    - Clean separation of concerns via services
-    - Transparent access to underlying FastAPI and Ibis APIs
-    - Sensible defaults with full customization capability
-    """
-
-    def __init__(
-        self,
-        config: FastVimesSettings | None = None,
-        db_path: str | None = None,
-        extensions: list[str] | None = None,
-        read_only: bool | None = None,
-        admin_enabled: bool | None = None,
-        html_path: str | None = None,
-        tables: dict | None = None,
-        *args,
-        **kwargs,
-    ):
-        # Initialize configuration - support simple constructor patterns
-        if config is None:
-            config_kwargs = {}
-            if db_path is not None:
-                config_kwargs["db_path"] = db_path
-            if extensions is not None:
-                config_kwargs["extensions"] = extensions
-            if read_only is not None:
-                config_kwargs["read_only"] = read_only
-            if admin_enabled is not None:
-                config_kwargs["admin_enabled"] = admin_enabled
-            if html_path is not None:
-                config_kwargs["html_path"] = html_path
-            if tables is not None:
-                config_kwargs["tables"] = tables
-            self.config = FastVimesSettings(**config_kwargs)
-        else:
-            self.config = config
-
-        # Initialize FastAPI with default settings
-        super().__init__(
-            title="FastVimes",
-            description="Lightweight composition of FastAPI and Ibis for data tools",
-            version="0.1.0",
-            *args,
-            **kwargs,
-        )
-
-        # Initialize services
-        self.db_service = DatabaseService(self.config)
-        self.static_service = StaticFilesService(self, self.config)
-        self.admin_service = AdminService(self, self.config)
-
-        # Initialize generators
-        self.endpoint_generator = EndpointGenerator(self.db_service)
-        self.form_generator = FormGenerator(self)
-
-        # Generate endpoints for all discovered tables
-        self._generate_endpoints()
-
-        logger.info(f"FastVimes initialized with database: {self.config.db_path}")
-
-    def _generate_endpoints(self) -> None:
-        """Generate API endpoints for all discovered tables."""
-        tables = self.db_service.list_tables()
-
-        for table_name in tables:
-            # Generate endpoints for this table
-            table_router = self.endpoint_generator.generate_table_endpoints(table_name)
-            self.include_router(table_router)
-
-            logger.info(f"Generated endpoints for table: {table_name}")
-
-        # Generate meta endpoints
-        meta_router = self.endpoint_generator.generate_meta_endpoints()
-        self.include_router(meta_router)
-
-        # Add root route redirect
-        self._add_root_route()
-        
-        # Generate dynamic table endpoints
-        dynamic_router = self.endpoint_generator.generate_dynamic_endpoints()
-        self.include_router(dynamic_router)
-
-        # Add HTML error handling (disabled for now due to test conflicts)
-        # self._add_html_error_handlers()
+class FastVimes:
+    """FastVimes application with auto-generated NiceGUI interface."""
     
-    def _add_root_route(self):
-        """Add root route that redirects to admin or shows welcome page."""
-        from fastapi.responses import RedirectResponse
+    def __init__(
+        self, 
+        db_path: Optional[str] = None,
+        settings: Optional[FastVimesSettings] = None
+    ):
+        """Initialize FastVimes with DuckLake backend.
         
-        @self.get("/")
-        async def root():
-            """Root endpoint - redirect to admin if enabled, otherwise show API docs."""
-            if self.config.admin_enabled:
-                return RedirectResponse(url="/admin", status_code=302)
-            else:
-                return RedirectResponse(url="/docs", status_code=302)
-
-    # Convenience properties to access services
-    @property
-    def db(self):
-        """Access to database service (Ibis connection)."""
-        return self.db_service.connection
-
-    @property
-    def connection(self):
-        """Access to database connection (alias for db)."""
-        return self.db_service.connection
-
-    # Convenience methods that delegate to services
-    def get_table(self, table_name: str):
-        """Get Ibis table reference."""
-        return self.db_service.get_table(table_name)
-
-    def get_table_config(self, table_name: str):
-        """Get configuration for a specific table."""
-        return self.db_service.get_table_config(table_name)
-
-    def list_tables(self):
-        """List all available tables with their configurations."""
-        return self.db_service.list_tables()
-
-    def execute_query(self, query):
-        """Execute a query and return results."""
-        return self.db_service.execute_query(query)
-
-    def get_table_dataclass(self, table_name: str):
-        """Generate a dynamic Pydantic model from Ibis table schema."""
-        return self.db_service.get_table_dataclass(table_name)
-
-    def generate_form(self, table_name: str, **kwargs):
-        """Generate HTML form for a table (convenience method)."""
-        return self.form_generator.generate_form(
-            self.get_table_dataclass(table_name), **kwargs
-        )
-
-    def run(
-        self, host: str = "127.0.0.1", port: int = 8000, reload: bool = False, **kwargs
-    ) -> None:
-        """
-        Run the FastVimes application with uvicorn.
-
-        Convenience method for running the application with common defaults.
-        For production use, consider using uvicorn directly with proper configuration.
-
         Args:
-            host: Host to bind to (default: 127.0.0.1)
-            port: Port to bind to (default: 8000)
-            reload: Enable auto-reload (default: False)
-            **kwargs: Additional arguments passed to uvicorn.run()
+            db_path: Path to DuckLake database. If None, creates temp DuckLake with sample data.
+            settings: Configuration settings. If None, loads from environment/config files.
         """
-        import uvicorn
+        self.settings = settings or FastVimesSettings()
+        
+        # Setup DuckLake database
+        if db_path is None:
+            self._setup_temp_database()
+        else:
+            self.db_path = Path(db_path)
+            
+        # Initialize database service
+        create_sample = db_path is None  # Create sample data if using temp database
+        self.db_service = DatabaseService(self.db_path, create_sample_data=create_sample)
+        
+        # Initialize API client for NiceGUI components (in-process mode for development)
+        self.api_client = FastVimesAPIClient(db_service=self.db_service)
+        
+        # Setup FastAPI for RQL endpoints
+        self.api = FastAPI(title="FastVimes API", version="0.1.0")
+        self._setup_api_routes()
+        
+        # Setup NiceGUI interface
+        self._setup_ui()
+        
+    def _setup_temp_database(self):
+        """Create temporary DuckLake with sample data."""
+        # Use in-memory database for zero-config demo
+        self.db_path = Path(":memory:")
+        
+        # For file-based temp database, uncomment below:
+        # self.temp_dir = Path(tempfile.mkdtemp(prefix="fastvimes_"))
+        # self.db_path = self.temp_dir / "sample.ducklake"
+        # atexit.register(self._cleanup_temp_database)
+        
+    def _cleanup_temp_database(self):
+        """Clean up temporary database directory."""
+        if hasattr(self, 'temp_dir') and self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
+            
 
-        uvicorn.run(self, host=host, port=port, reload=reload, **kwargs)
-
-    def close(self) -> None:
-        """Close database connection."""
-        self.db_service.close()
-
-    def _add_html_error_handlers(self) -> None:
-        """Add HTML error handling for web requests."""
-
-        @self.exception_handler(HTTPException)
-        async def html_http_exception_handler(request: Request, exc: HTTPException):
-            """Handle HTTPException for HTML requests with Bulma styling."""
-            # Skip error handling for test client
-            if request.client and request.client.host == "testclient":
-                raise exc
-
-            # Check if request expects HTML
-            accept_header = request.headers.get("accept", "")
-            if "text/html" in accept_header or request.url.path.endswith("/html"):
-                return HTMLResponse(
-                    content=self._generate_error_html(exc.status_code, exc.detail),
-                    status_code=exc.status_code,
+        
+    def _setup_api_routes(self):
+        """Setup FastAPI routes with namespaced v1 API structure."""
+        from fastapi import HTTPException, Request, Response
+        from fastapi.responses import StreamingResponse
+        from typing import Optional, Dict, Any, List
+        import io
+        
+        # =============================================================================
+        # META ENDPOINTS - Database introspection
+        # =============================================================================
+        
+        @self.api.get("/v1/meta/tables")
+        async def list_tables():
+            """List all tables in the database."""
+            try:
+                tables = self.db_service.list_tables()
+                return {"tables": tables}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.api.get("/v1/meta/schema/{table_name}")
+        async def get_table_schema(table_name: str):
+            """Get schema information for a table."""
+            try:
+                # Verify table exists
+                tables = self.db_service.list_tables()
+                table_names = [t['name'] for t in tables]
+                if table_name not in table_names:
+                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+                
+                # Get schema
+                schema = self.db_service.get_table_schema(table_name)
+                return {"schema": schema}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        # =============================================================================
+        # DATA ENDPOINTS - Table CRUD operations
+        # =============================================================================
+        
+        @self.api.get("/v1/data/{table_name}")
+        async def get_table_data(
+            table_name: str,
+            request: Request,
+            limit: Optional[int] = 100,
+            offset: Optional[int] = 0,
+            format: str = "json"
+        ):
+            """Get table data with RQL filtering and multi-format support."""
+            try:
+                # Verify table exists
+                tables = self.db_service.list_tables()
+                table_names = [t['name'] for t in tables]
+                if table_name not in table_names:
+                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+                
+                # Extract RQL query from query parameters
+                rql_query = None
+                if request.url.query:
+                    # Remove limit, offset, and format from query string for RQL processing
+                    query_parts = []
+                    for part in str(request.url.query).split('&'):
+                        if not part.startswith(('limit=', 'offset=', 'format=')):
+                            query_parts.append(part)
+                    if query_parts:
+                        rql_query = '&'.join(query_parts)
+                
+                # Get table data with RQL filtering
+                result = self.db_service.get_table_data(
+                    table_name=table_name,
+                    rql_query=rql_query,
+                    limit=limit,
+                    offset=offset,
+                    format=format
                 )
-            # Default to FastAPI's handling
-            raise exc
-
-        @self.exception_handler(Exception)
-        async def html_general_exception_handler(request: Request, exc: Exception):
-            """Handle general exceptions for HTML requests."""
-            # Skip error handling for test client
-            if request.client and request.client.host == "testclient":
-                raise exc
-
-            # Check if request expects HTML
-            accept_header = request.headers.get("accept", "")
-            if "text/html" in accept_header or request.url.path.endswith("/html"):
-                return HTMLResponse(
-                    content=self._generate_error_html(500, "Internal Server Error"),
-                    status_code=500,
+                
+                # Handle different response formats
+                if format.lower() == "json":
+                    return result
+                elif format.lower() == "csv":
+                    return Response(
+                        content=result,
+                        media_type="text/csv",
+                        headers={"Content-Disposition": f"attachment; filename={table_name}.csv"}
+                    )
+                elif format.lower() == "parquet":
+                    return Response(
+                        content=result,
+                        media_type="application/octet-stream",
+                        headers={"Content-Disposition": f"attachment; filename={table_name}.parquet"}
+                    )
+                else:
+                    raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+                    
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.api.post("/v1/data/{table_name}")
+        async def create_record(table_name: str, record_data: Dict[str, Any]):
+            """Create a new record in the specified table."""
+            try:
+                # Verify table exists
+                tables = self.db_service.list_tables()
+                table_names = [t['name'] for t in tables]
+                if table_name not in table_names:
+                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+                
+                # Create record
+                created_record = self.db_service.create_record(table_name, record_data)
+                return {"message": "Record created successfully", "record": created_record}
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        
+        @self.api.put("/v1/data/{table_name}")
+        async def update_records(
+            table_name: str, 
+            record_data: Dict[str, Any],
+            request: Request
+        ):
+            """Update records in the specified table."""
+            try:
+                # Verify table exists
+                tables = self.db_service.list_tables()
+                table_names = [t['name'] for t in tables]
+                if table_name not in table_names:
+                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+                
+                # Extract RQL query from query parameters
+                rql_query = None
+                if request.url.query:
+                    rql_query = str(request.url.query)
+                
+                # Update records
+                count = self.db_service.update_records(
+                    table_name=table_name,
+                    data=record_data,
+                    rql_query=rql_query
                 )
-            # Default to FastAPI's handling
-            raise exc
-
-    def _generate_error_html(self, status_code: int, detail: str) -> str:
-        """Generate HTML error page with Bulma styling."""
-        from fasthtml.common import Html, Head, Body, Div, H1, P, Link, Meta, Title
-
-        return str(
-            Html(
-                Head(
-                    Meta(charset="utf-8"),
-                    Meta(
-                        name="viewport", content="width=device-width, initial-scale=1"
-                    ),
-                    Title(f"Error {status_code}"),
-                    Link(
-                        rel="stylesheet",
-                        href="https://unpkg.com/bulma@1.0.4/css/bulma.css",
-                    ),
-                ),
-                Body(
-                    Div(
-                        Div(
-                            H1(f"Error {status_code}", cls="title has-text-danger"),
-                            P(detail, cls="subtitle"),
-                            cls="has-text-centered",
-                        ),
-                        cls="hero-body",
-                    ),
-                    cls="hero is-fullheight",
-                ),
-            )
+                return {"message": f"Updated {count} records", "count": count}
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        
+        @self.api.delete("/v1/data/{table_name}")
+        async def delete_records(table_name: str, request: Request):
+            """Delete records from the specified table."""
+            try:
+                # Verify table exists
+                tables = self.db_service.list_tables()
+                table_names = [t['name'] for t in tables]
+                if table_name not in table_names:
+                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+                
+                # Extract RQL query from query parameters
+                rql_query = None
+                if request.url.query:
+                    rql_query = str(request.url.query)
+                
+                if not rql_query:
+                    raise HTTPException(status_code=400, detail="RQL query required for deletion to prevent accidental deletion of all records")
+                
+                # Delete records
+                count = self.db_service.delete_records(
+                    table_name=table_name,
+                    rql_query=rql_query
+                )
+                return {"message": f"Deleted {count} records", "count": count}
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        
+        # =============================================================================
+        # QUERY ENDPOINT - Raw SQL execution
+        # =============================================================================
+        
+        @self.api.post("/v1/query")
+        async def execute_query(query_data: Dict[str, Any]):
+            """Execute a raw SQL query and return results."""
+            try:
+                sql = query_data.get("sql")
+                format = query_data.get("format", "json")
+                
+                if not sql:
+                    raise HTTPException(status_code=400, detail="SQL query is required")
+                
+                # Execute query
+                result = self.db_service.execute_query(sql)
+                
+                # Handle different response formats
+                if format.lower() == "json":
+                    return {"data": result}
+                elif format.lower() == "csv":
+                    # Convert to CSV format
+                    if result:
+                        import csv
+                        import io
+                        output = io.StringIO()
+                        writer = csv.DictWriter(output, fieldnames=result[0].keys())
+                        writer.writeheader()
+                        writer.writerows(result)
+                        csv_content = output.getvalue()
+                        return Response(
+                            content=csv_content,
+                            media_type="text/csv",
+                            headers={"Content-Disposition": "attachment; filename=query_result.csv"}
+                        )
+                    else:
+                        return Response(content="", media_type="text/csv")
+                elif format.lower() == "parquet":
+                    # Convert to Parquet format
+                    if result:
+                        columns = list(result[0].keys())
+                        parquet_bytes = self.db_service._export_to_parquet(columns, result)
+                        return Response(
+                            content=parquet_bytes,
+                            media_type="application/octet-stream",
+                            headers={"Content-Disposition": "attachment; filename=query_result.parquet"}
+                        )
+                    else:
+                        return Response(content=b"", media_type="application/octet-stream")
+                else:
+                    raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+                    
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+    def _setup_ui(self):
+        """Setup NiceGUI interface with auto-generated components."""
+        # Main page with table browser
+        @ui.page('/')
+        def index():
+            self._render_main_interface()
+            
+        # Table detail pages
+        @ui.page('/table/{table_name}')
+        def table_detail(table_name: str):
+            self._render_table_detail(table_name)
+            
+        # Embedded UIs
+        @ui.page('/admin/duckdb-ui')
+        def duckdb_ui():
+            ui.iframe('http://localhost:4213')  # DuckDB UI extension
+            
+        @ui.page('/admin/api-docs')
+        def api_docs():
+            ui.iframe('/docs')  # FastAPI auto-generated docs
+            
+    def _render_main_interface(self):
+        """Render the main Datasette-style interface."""
+        with ui.header().classes('items-center'):
+            ui.label('FastVimes').classes('text-h5 font-bold')
+            with ui.row().classes('ml-auto'):
+                ui.button('API Docs', on_click=lambda: ui.navigate.to('/docs', new_tab=True)).props('flat')
+        
+        with ui.column().classes('w-full max-w-6xl mx-auto p-4'):
+            ui.label('Database Tables').classes('text-h4 mb-4')
+            
+            # Table browser component
+            table_browser = TableBrowser(self.api_client)
+            table_browser.render()
+        
+    def _render_table_detail(self, table_name: str):
+        """Render detailed view for a specific table."""
+        with ui.header().classes('items-center'):
+            ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat')
+            ui.label(f'Table: {table_name}').classes('text-h5 font-bold ml-2')
+            
+        with ui.column().classes('w-full max-w-6xl mx-auto p-4'):
+            with ui.tabs().classes('w-full') as tabs:
+                data_tab = ui.tab('Data')
+                add_tab = ui.tab('Add Record')
+                
+            with ui.tab_panels(tabs, value=data_tab).classes('w-full'):
+                with ui.tab_panel(data_tab):
+                    # Data explorer component
+                    data_explorer = DataExplorer(self.api_client, table_name)
+                    data_explorer.render()
+                    
+                with ui.tab_panel(add_tab):
+                    # Form generator component
+                    form_generator = FormGenerator(self.api_client, table_name)
+                    form_generator.render()
+        
+    def serve(self, host: str = "127.0.0.1", port: int = 8000):
+        """Start the FastVimes server."""
+        # Mount FastAPI app for API routes
+        app.mount('/api', self.api)
+        
+        # Start NiceGUI with embedded FastAPI
+        ui.run(
+            host=host,
+            port=port,
+            title="FastVimes",
+            favicon="🦆",
+            reload=False,
+            show=False
         )
+        
+    # Override methods for customization
+    def table_component(self, table_name: str):
+        """Override this method to customize table display for specific tables."""
+        return DataExplorer(self.api_client, table_name)
+        
+    def form_component(self, table_name: str):
+        """Override this method to customize forms for specific tables."""
+        return FormGenerator(self.api_client, table_name)
