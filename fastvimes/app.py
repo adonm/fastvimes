@@ -1,278 +1,369 @@
 """FastVimes main application class with NiceGUI + DuckLake integration."""
 
-import tempfile
 import atexit
+import logging
 import shutil
-import subprocess
 import threading
 import time
 import urllib.request
-from urllib.error import URLError
+from collections import deque
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
+from urllib.error import URLError
 
-from nicegui import ui, app
-from fastapi import FastAPI, Request, HTTPException, Depends, Query, File, UploadFile, Body
-from fastapi.responses import Response
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
+from nicegui import app, ui
 
-from .config import FastVimesSettings
-from .database_service import DatabaseService
 from .api_client import FastVimesAPIClient
-from .components.table_browser import TableBrowser
 from .components.data_explorer import DataExplorer
 from .components.form_generator import FormGenerator
 from .components.query_builder import QueryBuilder
-from .middleware.auth_authlib import AuthMiddleware, setup_auth_routes, require_auth, require_admin
+from .components.table_browser import TableBrowser
+from .config import FastVimesSettings
+from .database_service import DatabaseService
+from .middleware.auth_authlib import (
+    require_auth,
+)
+
+
+class LogHandler(logging.Handler):
+    """Custom logging handler that stores logs in memory for the logs page."""
+
+    def __init__(self, max_logs: int = 1000):
+        super().__init__()
+        self.max_logs = max_logs
+        self.logs = deque(maxlen=max_logs)
+
+    def emit(self, record):
+        """Store log record in memory."""
+        log_entry = {
+            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "level": record.levelname,
+            "message": self.format(record),
+            "module": record.module,
+            "funcName": record.funcName,
+            "lineno": record.lineno,
+        }
+        self.logs.append(log_entry)
+
+    def get_logs(self):
+        """Get all stored logs."""
+        return list(self.logs)
+
+    def clear_logs(self):
+        """Clear all stored logs."""
+        self.logs.clear()
 
 
 class FastVimes:
     """FastVimes application with auto-generated NiceGUI interface."""
-    
+
     def __init__(
-        self, 
-        db_path: Optional[str] = None,
-        settings: Optional[FastVimesSettings] = None
+        self,
+        db_path: str | None = None,
+        settings: FastVimesSettings | None = None,
     ):
         """Initialize FastVimes with DuckLake backend.
-        
+
         Args:
             db_path: Path to DuckLake database. If None, creates temp DuckLake with sample data.
             settings: Configuration settings. If None, loads from environment/config files.
         """
         self.settings = settings or FastVimesSettings()
-        
+
+        # Setup logging
+        self.log_handler = LogHandler()
+        self.logger = logging.getLogger("fastvimes")
+        self.logger.setLevel(logging.INFO)
+
+        # Setup formatter
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        self.log_handler.setFormatter(formatter)
+
+        # Add handler to root logger to capture all logs
+        root_logger = logging.getLogger()
+        root_logger.addHandler(self.log_handler)
+        root_logger.setLevel(logging.INFO)
+
+        # Also add to FastVimes logger specifically
+        self.logger.addHandler(self.log_handler)
+
         # Setup DuckLake database
         if db_path is None:
             self._setup_temp_database()
         else:
             self.db_path = Path(db_path)
-            
+
+        self.logger.info(f"FastVimes initialized with database: {self.db_path}")
+
         # Initialize database service
         create_sample = db_path is None  # Create sample data if using temp database
-        self.db_service = DatabaseService(self.db_path, create_sample_data=create_sample)
-        
+        self.db_service = DatabaseService(
+            self.db_path, create_sample_data=create_sample
+        )
+
         # Initialize API client for NiceGUI components (in-process mode for development)
         self.api_client = FastVimesAPIClient(db_service=self.db_service)
-        
+
         # DuckDB UI process tracking
         self.duckdb_ui_process = None
         self.duckdb_ui_thread = None
-        
+
         # Setup authentication if enabled
         if self.settings.auth_enabled:
-            self.auth_manager, self.auth_ui = create_auth_middleware(self.settings)
+            # Note: Auth middleware implementation would go here
+            # For now, disable authentication until middleware is properly set up
+            self.auth_manager = None
+            self.auth_ui = None
         else:
             self.auth_manager = None
             self.auth_ui = None
-        
+
         # Setup FastAPI for RQL endpoints
         self.api = FastAPI(title="FastVimes API", version="0.1.0")
         self._setup_api_routes()
-        
+
         # Setup NiceGUI interface
         self._setup_ui()
-        
+
         # Setup authentication routes if enabled
         if self.auth_manager:
             self._setup_auth_routes()
-        
+
         # Register cleanup
         atexit.register(self._cleanup)
-    
+
     def _launch_duckdb_ui(self):
         """Launch DuckDB UI extension in background thread."""
-        if not self.settings.admin_enabled or not self.settings.duckdb_ui_enabled or not self.settings.duckdb_ui_auto_launch:
+        if (
+            not self.settings.admin_enabled
+            or not self.settings.duckdb_ui_enabled
+            or not self.settings.duckdb_ui_auto_launch
+        ):
             return
-            
+
         def start_duckdb_ui():
             """Start DuckDB UI extension using Python API."""
             try:
                 import duckdb
-                
+
                 # Create connection to same database
                 if str(self.db_path) == ":memory:":
                     # For in-memory database, we need to share the connection
                     # This is a limitation - DuckDB UI works best with file databases
-                    print("Warning: DuckDB UI works best with file databases, not in-memory databases")
+                    self.logger.warning(
+                        "DuckDB UI works best with file databases, not in-memory databases"
+                    )
                     return
                 else:
                     # Connect to the same database file
                     conn = duckdb.connect(str(self.db_path))
-                
+
                 # Install and load UI extension
                 conn.execute("INSTALL ui")
                 conn.execute("LOAD ui")
-                
+
                 # Configure UI server
                 conn.execute(f"SET ui_local_port = {self.settings.duckdb_ui_port}")
-                
+
                 # Start UI server
                 conn.execute("CALL start_ui_server()")
-                
-                print(f"DuckDB UI started on port {self.settings.duckdb_ui_port}")
-                
+
+                self.logger.info(
+                    f"DuckDB UI started on port {self.settings.duckdb_ui_port}"
+                )
+
                 # Keep the connection alive
                 while True:
                     time.sleep(1)
-                    
+
             except ImportError:
-                print("Warning: DuckDB not available for UI extension")
+                self.logger.warning("DuckDB not available for UI extension")
             except Exception as e:
-                print(f"Warning: Could not start DuckDB UI: {e}")
-        
+                self.logger.error(f"Could not start DuckDB UI: {e}")
+
         # Start DuckDB UI in background thread
         self.duckdb_ui_thread = threading.Thread(target=start_duckdb_ui, daemon=True)
         self.duckdb_ui_thread.start()
-        
+
         # Wait a moment for UI to start
         time.sleep(2)
-        
+
         # Check if UI is available
         try:
-            urllib.request.urlopen(f"http://localhost:{self.settings.duckdb_ui_port}", timeout=1)
-            print(f"DuckDB UI available at http://localhost:{self.settings.duckdb_ui_port}")
+            urllib.request.urlopen(
+                f"http://localhost:{self.settings.duckdb_ui_port}", timeout=1
+            )
+            self.logger.info(
+                f"DuckDB UI available at http://localhost:{self.settings.duckdb_ui_port}"
+            )
         except (URLError, OSError):
-            print(f"DuckDB UI may not be available at http://localhost:{self.settings.duckdb_ui_port}")
-    
+            self.logger.warning(
+                f"DuckDB UI may not be available at http://localhost:{self.settings.duckdb_ui_port}"
+            )
+
     def _cleanup(self):
         """Clean up resources on shutdown."""
         if self.duckdb_ui_process:
             try:
                 self.duckdb_ui_process.terminate()
                 self.duckdb_ui_process.wait(timeout=5)
-            except:
+            except Exception:
                 pass
-        
-        if hasattr(self, 'db_service') and self.db_service:
+
+        if hasattr(self, "db_service") and self.db_service:
             self.db_service.close()
-        
+
     def _setup_temp_database(self):
         """Create temporary DuckLake with sample data."""
         # Use in-memory database for zero-config demo
         self.db_path = Path(":memory:")
-        
+
         # For file-based temp database, uncomment below:
         # self.temp_dir = Path(tempfile.mkdtemp(prefix="fastvimes_"))
         # self.db_path = self.temp_dir / "sample.ducklake"
         # atexit.register(self._cleanup_temp_database)
-        
+
     def _cleanup_temp_database(self):
         """Clean up temporary database directory."""
-        if hasattr(self, 'temp_dir') and self.temp_dir.exists():
+        if hasattr(self, "temp_dir") and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
-            
 
-        
     def _setup_api_routes(self):
         """Setup FastAPI routes with namespaced v1 API structure."""
-        from fastapi import HTTPException, Request, Response
-        from fastapi.responses import StreamingResponse
-        from typing import Optional, Dict, Any, List
-        import io
-        
+
+        from fastapi import Response
+
         # =============================================================================
         # AUTHENTICATION ENDPOINTS
         # =============================================================================
-        
+
         if self.auth_manager:
+
             @self.api.post("/v1/auth/login")
-            async def login(credentials: Dict[str, str]):
+            async def login(credentials: dict[str, str]):
                 """Login with username and password."""
                 username = credentials.get("username")
                 password = credentials.get("password")
-                
+
                 if not username or not password:
-                    raise HTTPException(status_code=400, detail="Username and password required")
-                
+                    raise HTTPException(
+                        status_code=400, detail="Username and password required"
+                    )
+
                 user = self.auth_manager.authenticate_user(username, password)
                 if not user:
                     raise HTTPException(status_code=401, detail="Invalid credentials")
-                
+
                 token = self.auth_manager.create_access_token(user)
                 return {"access_token": token, "token_type": "bearer", "user": user}
-            
+
             @self.api.post("/v1/auth/logout")
-            async def logout(current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager))):
+            async def logout(
+                current_user: dict[str, Any] = Depends(require_auth(self.auth_manager)),
+            ):
                 """Logout current user."""
                 token = current_user.get("token")
                 if token:
                     self.auth_manager.logout_user(token)
                 return {"message": "Logged out successfully"}
-            
+
             @self.api.get("/v1/auth/me")
-            async def get_current_user(current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager))):
+            async def get_current_user(
+                current_user: dict[str, Any] = Depends(require_auth(self.auth_manager)),
+            ):
                 """Get current user information."""
                 return current_user
-        
+
         # =============================================================================
         # META ENDPOINTS - Database introspection
         # =============================================================================
-        
+
         @self.api.get("/v1/meta/tables")
-        async def list_tables(current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None):
+        async def list_tables(
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
+        ):
             """List all tables in the database."""
             try:
                 tables = self.db_service.list_tables()
                 return {"tables": tables}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         @self.api.get("/v1/meta/schema/{table_name}")
         async def get_table_schema(table_name: str):
             """Get schema information for a table."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Get schema
                 schema = self.db_service.get_table_schema(table_name)
                 return {"schema": schema}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         # =============================================================================
         # DATA ENDPOINTS - Table CRUD operations
         # =============================================================================
-        
+
         @self.api.get("/v1/data/{table_name}")
         async def get_table_data(
             table_name: str,
             request: Request,
-            limit: Optional[int] = 100,
-            offset: Optional[int] = 0,
-            format: str = "json"
+            limit: int | None = 100,
+            offset: int | None = 0,
+            format: str = "json",
         ):
             """Get table data with RQL filtering and multi-format support."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Extract RQL query from query parameters
                 rql_query = None
                 if request.url.query:
                     # Remove limit, offset, and format from query string for RQL processing
                     query_parts = []
-                    for part in str(request.url.query).split('&'):
-                        if not part.startswith(('limit=', 'offset=', 'format=')):
+                    for part in str(request.url.query).split("&"):
+                        if not part.startswith(("limit=", "offset=", "format=")):
                             query_parts.append(part)
                     if query_parts:
-                        rql_query = '&'.join(query_parts)
-                
+                        rql_query = "&".join(query_parts)
+
                 # Get table data with RQL filtering
                 result = self.db_service.get_table_data(
                     table_name=table_name,
                     rql_query=rql_query,
                     limit=limit,
                     offset=offset,
-                    format=format
+                    format=format,
                 )
-                
+
                 # Handle different response formats
                 if format.lower() == "json":
                     return result
@@ -280,120 +371,141 @@ class FastVimes:
                     return Response(
                         content=result,
                         media_type="text/csv",
-                        headers={"Content-Disposition": f"attachment; filename={table_name}.csv"}
+                        headers={
+                            "Content-Disposition": f"attachment; filename={table_name}.csv"
+                        },
                     )
                 elif format.lower() == "parquet":
                     return Response(
                         content=result,
                         media_type="application/octet-stream",
-                        headers={"Content-Disposition": f"attachment; filename={table_name}.parquet"}
+                        headers={
+                            "Content-Disposition": f"attachment; filename={table_name}.parquet"
+                        },
                     )
                 else:
-                    raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
-                    
+                    raise HTTPException(
+                        status_code=400, detail=f"Unsupported format: {format}"
+                    )
+
             except HTTPException:
                 raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         @self.api.post("/v1/data/{table_name}")
         async def create_record(
-            table_name: str, 
-            record_data: Dict[str, Any] = Body(...),
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            table_name: str,
+            record_data: dict[str, Any] = Body(...),
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Create a new record in the specified table."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Create record
                 created_record = self.db_service.create_record(table_name, record_data)
-                return {"message": "Record created successfully", "record": created_record}
+                return {
+                    "message": "Record created successfully",
+                    "record": created_record,
+                }
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
         @self.api.put("/v1/data/{table_name}")
         async def update_records(
-            table_name: str, 
+            table_name: str,
             request: Request,
-            record_data: Dict[str, Any] = Body(),
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            record_data: dict[str, Any] = Body(),
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Update records in the specified table."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Extract RQL query from query parameters
                 rql_query = None
                 if request.url.query:
                     rql_query = str(request.url.query)
-                
+
                 # Update records
                 count = self.db_service.update_records(
-                    table_name=table_name,
-                    data=record_data,
-                    rql_query=rql_query
+                    table_name=table_name, data=record_data, rql_query=rql_query
                 )
                 return {"message": f"Updated {count} records", "count": count}
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
         @self.api.delete("/v1/data/{table_name}")
         async def delete_records(
-            table_name: str, 
+            table_name: str,
             request: Request,
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Delete records from the specified table."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Extract RQL query from query parameters
                 rql_query = None
                 if request.url.query:
                     rql_query = str(request.url.query)
-                
+
                 if not rql_query:
-                    raise HTTPException(status_code=400, detail="RQL query required for deletion to prevent accidental deletion of all records")
-                
+                    raise HTTPException(
+                        status_code=400,
+                        detail="RQL query required for deletion to prevent accidental deletion of all records",
+                    )
+
                 # Delete records
                 count = self.db_service.delete_records(
-                    table_name=table_name,
-                    rql_query=rql_query
+                    table_name=table_name, rql_query=rql_query
                 )
                 return {"message": f"Deleted {count} records", "count": count}
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
         # =============================================================================
         # QUERY ENDPOINT - Raw SQL execution
         # =============================================================================
-        
+
         @self.api.post("/v1/query")
-        async def execute_query(query_data: Dict[str, Any]):
+        async def execute_query(query_data: dict[str, Any]):
             """Execute a raw SQL query and return results."""
             try:
                 sql = query_data.get("sql")
                 format = query_data.get("format", "json")
-                
+
                 if not sql:
                     raise HTTPException(status_code=400, detail="SQL query is required")
-                
+
                 # Execute query
                 result = self.db_service.execute_query(sql)
-                
+
                 # Handle different response formats
                 if format.lower() == "json":
                     return {"data": result}
@@ -402,6 +514,7 @@ class FastVimes:
                     if result:
                         import csv
                         import io
+
                         output = io.StringIO()
                         writer = csv.DictWriter(output, fieldnames=result[0].keys())
                         writer.writeheader()
@@ -410,7 +523,9 @@ class FastVimes:
                         return Response(
                             content=csv_content,
                             media_type="text/csv",
-                            headers={"Content-Disposition": "attachment; filename=query_result.csv"}
+                            headers={
+                                "Content-Disposition": "attachment; filename=query_result.csv"
+                            },
                         )
                     else:
                         return Response(content="", media_type="text/csv")
@@ -418,46 +533,63 @@ class FastVimes:
                     # Convert to Parquet format
                     if result:
                         columns = list(result[0].keys())
-                        parquet_bytes = self.db_service._export_to_parquet(columns, result)
+                        parquet_bytes = self.db_service._export_to_parquet(
+                            columns, result
+                        )
                         return Response(
                             content=parquet_bytes,
                             media_type="application/octet-stream",
-                            headers={"Content-Disposition": "attachment; filename=query_result.parquet"}
+                            headers={
+                                "Content-Disposition": "attachment; filename=query_result.parquet"
+                            },
                         )
                     else:
-                        return Response(content=b"", media_type="application/octet-stream")
+                        return Response(
+                            content=b"", media_type="application/octet-stream"
+                        )
                 else:
-                    raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
-                    
+                    raise HTTPException(
+                        status_code=400, detail=f"Unsupported format: {format}"
+                    )
+
             except HTTPException:
                 raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-        
+
         # Bulk Operations Endpoints
         @self.api.post("/v1/data/{table_name}/bulk-insert")
         async def bulk_insert(
             table_name: str,
             file: UploadFile = File(...),
-            file_format: str = Query("auto", description="File format: auto, parquet, csv, json"),
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            file_format: str = Query(
+                "auto", description="File format: auto, parquet, csv, json"
+            ),
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Bulk insert records from uploaded file."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Save uploaded file temporarily
-                import tempfile
                 import os
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_format}") as temp_file:
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=f".{file_format}"
+                ) as temp_file:
                     content = await file.read()
                     temp_file.write(content)
                     temp_file_path = temp_file.name
-                
+
                 try:
                     # Perform bulk insert
                     records_inserted = self.db_service.bulk_insert_from_file(
@@ -466,43 +598,54 @@ class FastVimes:
                     return {
                         "message": "Bulk insert completed successfully",
                         "records_inserted": records_inserted,
-                        "table_name": table_name
+                        "table_name": table_name,
                     }
                 finally:
                     # Clean up temporary file
                     if os.path.exists(temp_file_path):
                         os.unlink(temp_file_path)
-                        
+
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
         @self.api.post("/v1/data/{table_name}/bulk-upsert")
         async def bulk_upsert(
             table_name: str,
             file: UploadFile = File(...),
-            key_columns: str = Query(..., description="Comma-separated list of key columns for matching"),
-            file_format: str = Query("auto", description="File format: auto, parquet, csv, json"),
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            key_columns: str = Query(
+                ..., description="Comma-separated list of key columns for matching"
+            ),
+            file_format: str = Query(
+                "auto", description="File format: auto, parquet, csv, json"
+            ),
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Bulk upsert (insert or update) records from uploaded file."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Parse key columns
-                key_columns_list = [col.strip() for col in key_columns.split(',')]
-                
+                key_columns_list = [col.strip() for col in key_columns.split(",")]
+
                 # Save uploaded file temporarily
-                import tempfile
                 import os
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_format}") as temp_file:
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=f".{file_format}"
+                ) as temp_file:
                     content = await file.read()
                     temp_file.write(content)
                     temp_file_path = temp_file.name
-                
+
                 try:
                     # Perform bulk upsert
                     result = self.db_service.bulk_upsert_from_file(
@@ -513,43 +656,54 @@ class FastVimes:
                         "records_inserted": result["inserted"],
                         "records_updated": result["updated"],
                         "table_name": table_name,
-                        "key_columns": key_columns_list
+                        "key_columns": key_columns_list,
                     }
                 finally:
                     # Clean up temporary file
                     if os.path.exists(temp_file_path):
                         os.unlink(temp_file_path)
-                        
+
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
         @self.api.post("/v1/data/{table_name}/bulk-delete")
         async def bulk_delete(
             table_name: str,
             file: UploadFile = File(...),
-            key_columns: str = Query(..., description="Comma-separated list of key columns for matching"),
-            file_format: str = Query("auto", description="File format: auto, parquet, csv, json"),
-            current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
+            key_columns: str = Query(
+                ..., description="Comma-separated list of key columns for matching"
+            ),
+            file_format: str = Query(
+                "auto", description="File format: auto, parquet, csv, json"
+            ),
+            current_user: dict[str, Any] = Depends(require_auth(self.auth_manager))
+            if self.auth_manager
+            else None,
         ):
             """Bulk delete records based on keys from uploaded file."""
             try:
                 # Verify table exists
                 tables = self.db_service.list_tables()
-                table_names = [t['name'] for t in tables]
+                table_names = [t["name"] for t in tables]
                 if table_name not in table_names:
-                    raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-                
+                    raise HTTPException(
+                        status_code=404, detail=f"Table '{table_name}' not found"
+                    )
+
                 # Parse key columns
-                key_columns_list = [col.strip() for col in key_columns.split(',')]
-                
+                key_columns_list = [col.strip() for col in key_columns.split(",")]
+
                 # Save uploaded file temporarily
-                import tempfile
                 import os
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_format}") as temp_file:
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=f".{file_format}"
+                ) as temp_file:
                     content = await file.read()
                     temp_file.write(content)
                     temp_file_path = temp_file.name
-                
+
                 try:
                     # Perform bulk delete
                     records_deleted = self.db_service.bulk_delete_from_file(
@@ -559,99 +713,209 @@ class FastVimes:
                         "message": "Bulk delete completed successfully",
                         "records_deleted": records_deleted,
                         "table_name": table_name,
-                        "key_columns": key_columns_list
+                        "key_columns": key_columns_list,
                     }
                 finally:
                     # Clean up temporary file
                     if os.path.exists(temp_file_path):
                         os.unlink(temp_file_path)
-                        
+
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
-        
+
     def _setup_ui(self):
         """Setup NiceGUI interface with auto-generated components."""
+
         # Main page with table browser
-        @ui.page('/')
+        @ui.page("/")
         def index():
             self._render_main_interface()
-            
+
         # Table detail pages
-        @ui.page('/table/{table_name}')
+        @ui.page("/table/{table_name}")
         def table_detail(table_name: str):
             self._render_table_detail(table_name)
-            
+
         # Embedded UIs
-        @ui.page('/admin/duckdb-ui')
+        @ui.page("/admin/duckdb-ui")
         def duckdb_ui():
-            ui.label('DuckDB UI').classes('text-h4 p-4')
-            ui.html(f'<iframe src="http://localhost:{self.settings.duckdb_ui_port}" width="100%" height="600" style="border: none;"></iframe>')
-            
-        @ui.page('/admin/api-docs')
+            self._render_admin_page("DuckDB UI", "duckdb-ui")
+
+        @ui.page("/admin/api-docs")
         def api_docs():
-            ui.html('<iframe src="/docs" class="w-full h-full" style="border: none;"></iframe>')  # FastAPI auto-generated docs
-            
+            self._render_admin_page("API Documentation", "api-docs")
+
+        @ui.page("/admin/logs")
+        def logs():
+            self._render_admin_page("Server Logs", "logs")
+
+    def _render_admin_page(self, title: str, page_type: str):
+        """Render admin page with navigation."""
+        with ui.header().classes("items-center px-4"):
+            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props(
+                "flat"
+            )
+            ui.label(title).classes("text-h5 font-bold ml-2")
+            ui.space()
+            self._render_admin_nav()
+
+        with ui.column().classes("w-full h-full"):
+            if page_type == "duckdb-ui":
+                ui.html(
+                    f'<iframe src="http://localhost:{self.settings.duckdb_ui_port}" width="100%" height="600" style="border: none;"></iframe>'
+                )
+            elif page_type == "api-docs":
+                ui.html(
+                    '<iframe src="/docs" class="w-full h-full" style="border: none;"></iframe>'
+                )
+            elif page_type == "logs":
+                self._render_logs_content()
+
+    def _render_admin_nav(self):
+        """Render admin navigation buttons."""
+        with ui.row().classes("items-center gap-2"):
+            ui.button(
+                "API Docs",
+                icon="api",
+                on_click=lambda: ui.navigate.to("/admin/api-docs"),
+            ).props("flat")
+            ui.button(
+                "SQL Console",
+                icon="code",
+                on_click=lambda: ui.navigate.to("/admin/duckdb-ui"),
+            ).props("flat")
+            ui.button(
+                "Logs", icon="article", on_click=lambda: ui.navigate.to("/admin/logs")
+            ).props("flat")
+
+    def _render_logs_content(self):
+        """Render logs page content."""
+        with ui.column().classes("w-full p-4"):
+            with ui.row().classes("w-full items-center justify-between mb-4"):
+                ui.label("Server Logs").classes("text-h6")
+                with ui.row().classes("items-center gap-2"):
+                    ui.button("Clear", icon="clear", on_click=self._clear_logs).props(
+                        "outline"
+                    )
+                    ui.button(
+                        "Refresh", icon="refresh", on_click=self._refresh_logs
+                    ).props("outline")
+
+            # Log container
+            self.logs_container = (
+                ui.column()
+                .classes("w-full")
+                .style("max-height: 600px; overflow-y: auto;")
+            )
+            self._refresh_logs()
+
+    def _clear_logs(self):
+        """Clear all logs."""
+        self.log_handler.clear_logs()
+        self.logger.info("Logs cleared by user")
+        # Only refresh if the container exists (UI is rendered)
+        if hasattr(self, "logs_container"):
+            self._refresh_logs()
+
+    def _refresh_logs(self):
+        """Refresh logs display."""
+        # Only refresh if the container exists (UI is rendered)
+        if not hasattr(self, "logs_container"):
+            return
+
+        self.logs_container.clear()
+        logs = self.log_handler.get_logs()
+
+        if not logs:
+            with self.logs_container:
+                ui.label("No logs available").classes("text-gray-500 italic")
+        else:
+            with self.logs_container:
+                for log in reversed(logs):  # Show newest first
+                    level_color = {
+                        "DEBUG": "text-gray-500",
+                        "INFO": "text-blue-600",
+                        "WARNING": "text-yellow-600",
+                        "ERROR": "text-red-600",
+                        "CRITICAL": "text-red-800",
+                    }.get(log["level"], "text-gray-700")
+
+                    with ui.row().classes("w-full items-start gap-2 p-2 border-b"):
+                        ui.label(log["timestamp"][:19]).classes(
+                            "text-xs text-gray-500 min-w-fit"
+                        )
+                        ui.label(log["level"]).classes(
+                            f"text-xs font-semibold {level_color} min-w-fit"
+                        )
+                        ui.label(log["message"]).classes("text-sm flex-1")
+
     def _render_main_interface(self):
         """Render the main Datasette-style interface."""
-        with ui.header().classes('items-center px-4'):
-            ui.label('FastVimes').classes('text-h5 font-bold')
+        with ui.header().classes("items-center px-4"):
+            ui.label("FastVimes").classes("text-h5 font-bold")
             ui.space()
-            with ui.row().classes('items-center gap-2'):
-                ui.button('API Docs', icon='api', on_click=lambda: ui.navigate.to('/docs', new_tab=True)).props('flat')
-                ui.button('SQL', icon='code', on_click=lambda: ui.navigate.to('/admin/duckdb-ui', new_tab=True)).props('flat')
-        
-        with ui.column().classes('w-full max-w-4xl mx-auto p-4'):
+            self._render_admin_nav()
+
+        with ui.column().classes("w-full max-w-4xl mx-auto p-4"):
             # Header with search
-            with ui.row().classes('w-full items-center justify-between mb-6'):
-                ui.label('Database Tables').classes('text-h4')
-                ui.input(placeholder='Search tables...').classes('w-64').props('outlined dense')
-            
+            with ui.row().classes("w-full items-center justify-between mb-6"):
+                ui.label("Database Tables").classes("text-h4")
+                ui.input(placeholder="Search tables...").classes("w-64").props(
+                    "outlined dense"
+                )
+
             # Table browser component (can be overridden)
             table_browser = self.table_browser_component()
             table_browser.render()
-        
+
     def _render_table_detail(self, table_name: str):
         """Render detailed view for a specific table."""
-        with ui.header().classes('items-center px-4'):
-            ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat')
-            ui.label(f'{table_name}').classes('text-h5 font-bold ml-2')
+        with ui.header().classes("items-center px-4"):
+            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props(
+                "flat"
+            )
+            ui.label(f"{table_name}").classes("text-h5 font-bold ml-2")
             ui.space()
-            with ui.row().classes('items-center gap-2'):
-                ui.button('API Docs', icon='api', on_click=lambda: ui.navigate.to('/docs', new_tab=True)).props('flat')
-                ui.button('SQL', icon='code', on_click=lambda: ui.navigate.to('/admin/duckdb-ui', new_tab=True)).props('flat')
-            
-        with ui.column().classes('w-full max-w-5xl mx-auto p-4'):
-            with ui.tabs().classes('w-full') as tabs:
-                data_tab = ui.tab('Data')
-                query_tab = ui.tab('Query')
-                add_tab = ui.tab('Add Record')
-                
-            with ui.tab_panels(tabs, value=data_tab).classes('w-full'):
+            self._render_admin_nav()
+
+        with ui.column().classes("w-full max-w-5xl mx-auto p-4"):
+            with ui.tabs().classes("w-full") as tabs:
+                data_tab = ui.tab("Data")
+                query_tab = ui.tab("Query")
+                add_tab = ui.tab("Add Record")
+
+            with ui.tab_panels(tabs, value=data_tab).classes("w-full"):
                 with ui.tab_panel(data_tab):
                     # Data explorer component (can be overridden)
                     data_explorer = self.table_component(table_name)
                     data_explorer.render()
-                    
+
                 with ui.tab_panel(query_tab):
                     # Query builder component (can be overridden)
                     query_builder = self.query_component(table_name)
                     query_builder.render()
-                    
+
                 with ui.tab_panel(add_tab):
                     # Form generator component (can be overridden)
                     form_generator = self.form_component(table_name)
                     form_generator.render()
-        
+
     def serve(self, host: str = "127.0.0.1", port: int = 8000):
         """Start the FastVimes server."""
         # Launch DuckDB UI if enabled
-        if self.settings.admin_enabled and self.settings.duckdb_ui_enabled and self.settings.duckdb_ui_auto_launch:
-            print("Launching DuckDB UI extension...")
+        if (
+            self.settings.admin_enabled
+            and self.settings.duckdb_ui_enabled
+            and self.settings.duckdb_ui_auto_launch
+        ):
+            self.logger.info("Launching DuckDB UI extension...")
             self._launch_duckdb_ui()
-        
+
         # Mount FastAPI app for API routes
-        app.mount('/api', self.api)
-        
+        app.mount("/api", self.api)
+
+        self.logger.info(f"Starting FastVimes server on {host}:{port}")
+
         # Start NiceGUI with embedded FastAPI
         ui.run(
             host=host,
@@ -659,126 +923,141 @@ class FastVimes:
             title="FastVimes",
             favicon="🦆",
             reload=False,
-            show=False
+            show=False,
         )
-        
+
     # Override methods for customization
     def table_component(self, table_name: str):
         """Override this method to customize table display for specific tables."""
         return DataExplorer(self.api_client, table_name)
-        
+
     def form_component(self, table_name: str):
         """Override this method to customize forms for specific tables."""
         return FormGenerator(self.api_client, table_name)
-        
+
     def query_component(self, table_name: str):
         """Override this method to customize query builder for specific tables."""
         return QueryBuilder(self.api_client, table_name)
-        
+
     def table_browser_component(self):
         """Override this method to customize the table browser."""
         return TableBrowser(self.api_client)
-        
+
     def _setup_auth_routes(self):
         """Setup authentication routes for NiceGUI."""
-        @ui.page('/login')
+
+        @ui.page("/login")
         def login_page():
             """Login page."""
             self.auth_ui.render_login_page()
-            
-        @ui.page('/logout')
+
+        @ui.page("/logout")
         def logout_page():
             """Logout page."""
             self.auth_ui._handle_logout()
-            
+
         # Add authentication check to protected routes
         def require_auth_ui():
             """Check authentication for UI routes."""
             if not self.auth_manager:
                 return None
-                
+
             # Check if user is authenticated
             current_user = self.auth_ui.check_authentication()
             if not current_user:
-                ui.navigate.to('/login')
+                ui.navigate.to("/login")
                 return None
             return current_user
-            
+
         # Override main pages to require authentication
-        @ui.page('/')
+        @ui.page("/")
         def protected_main():
             """Protected main page."""
             current_user = require_auth_ui()
             if current_user:
                 self._render_main_page(current_user)
-                
-        @ui.page('/table/{table_name}')
+
+        @ui.page("/table/{table_name}")
         def protected_table_detail(table_name: str):
             """Protected table detail page."""
             current_user = require_auth_ui()
             if current_user:
                 self._render_table_detail(table_name, current_user)
-                
+
     def _render_main_page(self, current_user=None):
         """Render main page with optional user context."""
         # Header with authentication info
         if current_user and self.auth_ui:
-            with ui.header().classes('items-center px-4'):
-                ui.label('FastVimes').classes('text-h6')
-                with ui.row().classes('ml-auto'):
+            with ui.header().classes("items-center px-4"):
+                ui.label("FastVimes").classes("text-h6")
+                with ui.row().classes("ml-auto"):
                     self.auth_ui.render_user_info(current_user)
         else:
-            with ui.header().classes('items-center px-4'):
-                ui.label('FastVimes').classes('text-h6')
-                
+            with ui.header().classes("items-center px-4"):
+                ui.label("FastVimes").classes("text-h6")
+
         # Main content (existing main page logic)
-        with ui.column().classes('w-full max-w-5xl mx-auto p-4'):
-            with ui.row().classes('w-full items-center justify-between mb-6'):
-                ui.label('Database Tables').classes('text-h4')
-                ui.input(placeholder='Search tables...').classes('w-64').props('outlined dense')
-            
+        with ui.column().classes("w-full max-w-5xl mx-auto p-4"):
+            with ui.row().classes("w-full items-center justify-between mb-6"):
+                ui.label("Database Tables").classes("text-h4")
+                ui.input(placeholder="Search tables...").classes("w-64").props(
+                    "outlined dense"
+                )
+
             # Table browser component (can be overridden)
             table_browser = self.table_browser_component()
             table_browser.render()
-            
+
     def _render_table_detail(self, table_name: str, current_user=None):
         """Render table detail page with optional user context."""
         # Header with authentication info
         if current_user and self.auth_ui:
-            with ui.header().classes('items-center px-4'):
-                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat')
-                ui.label(f'Table: {table_name}').classes('text-h6')
-                with ui.row().classes('ml-auto'):
+            with ui.header().classes("items-center px-4"):
+                ui.button(
+                    icon="arrow_back", on_click=lambda: ui.navigate.to("/")
+                ).props("flat")
+                ui.label(f"Table: {table_name}").classes("text-h6")
+                with ui.row().classes("ml-auto"):
                     self.auth_ui.render_user_info(current_user)
         else:
-            with ui.header().classes('items-center px-4'):
-                ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to('/')).props('flat')
-                ui.label(f'Table: {table_name}').classes('text-h6')
-                
+            with ui.header().classes("items-center px-4"):
+                ui.button(
+                    icon="arrow_back", on_click=lambda: ui.navigate.to("/")
+                ).props("flat")
+                ui.label(f"Table: {table_name}").classes("text-h6")
+
         # Admin links (if admin user)
-        if current_user and current_user.get('role') == 'admin':
-            with ui.row().classes('w-full justify-end p-4'):
-                ui.button('API Docs', icon='api', on_click=lambda: ui.navigate.to('/docs', new_tab=True)).props('flat')
-                ui.button('SQL', icon='code', on_click=lambda: ui.navigate.to('/admin/duckdb-ui', new_tab=True)).props('flat')
-            
+        if current_user and current_user.get("role") == "admin":
+            with ui.row().classes("w-full justify-end p-4"):
+                ui.button(
+                    "API Docs",
+                    icon="api",
+                    on_click=lambda: ui.navigate.to("/docs", new_tab=True),
+                ).props("flat")
+                ui.button(
+                    "SQL",
+                    icon="code",
+                    on_click=lambda: ui.navigate.to("/admin/duckdb-ui", new_tab=True),
+                ).props("flat")
+
         # Main content (existing table detail logic)
-        with ui.column().classes('w-full max-w-5xl mx-auto p-4'):
-            with ui.tabs().classes('w-full') as tabs:
-                data_tab = ui.tab('Data')
-                query_tab = ui.tab('Query')
-                add_tab = ui.tab('Add Record')
-                
-            with ui.tab_panels(tabs, value=data_tab).classes('w-full'):
+        with ui.column().classes("w-full max-w-5xl mx-auto p-4"):
+            with ui.tabs().classes("w-full") as tabs:
+                data_tab = ui.tab("Data")
+                query_tab = ui.tab("Query")
+                add_tab = ui.tab("Add Record")
+
+            with ui.tab_panels(tabs, value=data_tab).classes("w-full"):
                 with ui.tab_panel(data_tab):
                     # Data explorer component (can be overridden)
                     data_explorer = self.table_component(table_name)
                     data_explorer.render()
-                    
+
                 with ui.tab_panel(query_tab):
                     # Query builder component (can be overridden)
                     query_builder = self.query_component(table_name)
                     query_builder.render()
-                    
+
                 with ui.tab_panel(add_tab):
                     # Form generator component (can be overridden)
                     form_generator = self.form_component(table_name)
