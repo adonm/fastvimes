@@ -141,6 +141,9 @@ class FastVimes:
         # Setup DuckDB UI extension
         self._setup_duckdb_ui()
 
+        # Setup theme system
+        self._setup_theme()
+
         # Register cleanup
         atexit.register(self._cleanup)
 
@@ -797,21 +800,19 @@ class FastVimes:
             with self.logs_container:
                 for log in all_logs:  # Already sorted newest first
                     level_color = {
-                        "DEBUG": "text-gray-500",
-                        "INFO": "text-blue-600",
-                        "WARNING": "text-yellow-600",
-                        "ERROR": "text-red-600",
-                        "CRITICAL": "text-red-800",
-                    }.get(log["level"], "text-gray-700")
+                        "DEBUG": "log-debug",
+                        "INFO": "log-info",
+                        "WARNING": "log-warning",
+                        "ERROR": "log-error",
+                        "CRITICAL": "log-error",
+                    }.get(log["level"], "log-debug")
 
                     source_color = (
-                        "text-green-600"
-                        if log.get("source") == "DuckDB"
-                        else "text-purple-600"
+                        "log-duckdb" if log.get("source") == "DuckDB" else "log-python"
                     )
                     source_label = log.get("source", "Python")
 
-                    with ui.row().classes("w-full items-start gap-2 p-2 border-b"):
+                    with ui.row().classes("w-full items-start gap-2 p-2 log-entry"):
                         ui.label(log["timestamp"][:19]).classes(
                             "text-xs text-gray-500 min-w-fit"
                         )
@@ -840,11 +841,147 @@ class FastVimes:
         except Exception:
             return []
 
+    def _setup_theme(self):
+        """Setup Gruvbox color theme with light/dark/auto modes."""
+        # Add custom CSS for Gruvbox theme
+        ui.add_head_html("""
+        <style>
+        :root {
+            /* Gruvbox Dark Theme */
+            --gruvbox-bg: #282828;
+            --gruvbox-bg-soft: #32302f;
+            --gruvbox-bg-hard: #1d2021;
+            --gruvbox-fg: #ebdbb2;
+            --gruvbox-fg-soft: #d5c4a1;
+            --gruvbox-red: #cc241d;
+            --gruvbox-green: #98971a;
+            --gruvbox-yellow: #d79921;
+            --gruvbox-blue: #458588;
+            --gruvbox-purple: #b16286;
+            --gruvbox-aqua: #689d6a;
+            --gruvbox-orange: #d65d0e;
+            --gruvbox-gray: #a89984;
+        }
+        
+        /* Light theme (for light mode) */
+        [data-theme="light"] {
+            --gruvbox-bg: #fbf1c7;
+            --gruvbox-bg-soft: #f2e5bc;
+            --gruvbox-bg-hard: #f9f5d7;
+            --gruvbox-fg: #3c3836;
+            --gruvbox-fg-soft: #504945;
+            --gruvbox-red: #cc241d;
+            --gruvbox-green: #98971a;
+            --gruvbox-yellow: #d79921;
+            --gruvbox-blue: #458588;
+            --gruvbox-purple: #b16286;
+            --gruvbox-aqua: #689d6a;
+            --gruvbox-orange: #d65d0e;
+            --gruvbox-gray: #7c6f64;
+        }
+        
+        /* Apply theme to body */
+        body {
+            background-color: var(--gruvbox-bg) !important;
+            color: var(--gruvbox-fg) !important;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Header styling */
+        .q-header {
+            background-color: var(--gruvbox-bg-soft) !important;
+            border-bottom: 1px solid var(--gruvbox-gray) !important;
+        }
+        
+        /* Button styling */
+        .q-btn {
+            color: var(--gruvbox-fg) !important;
+        }
+        
+        .q-btn:hover {
+            background-color: var(--gruvbox-bg-hard) !important;
+        }
+        
+        /* Card styling */
+        .q-card {
+            background-color: var(--gruvbox-bg-soft) !important;
+            border: 1px solid var(--gruvbox-gray) !important;
+        }
+        
+        /* Input styling */
+        .q-input {
+            color: var(--gruvbox-fg) !important;
+        }
+        
+        .q-field__control {
+            background-color: var(--gruvbox-bg-hard) !important;
+        }
+        
+        /* Table styling */
+        .q-table {
+            background-color: var(--gruvbox-bg-soft) !important;
+            color: var(--gruvbox-fg) !important;
+        }
+        
+        .q-table__top {
+            background-color: var(--gruvbox-bg-hard) !important;
+        }
+        
+        /* Log styling */
+        .log-entry {
+            border-color: var(--gruvbox-gray) !important;
+        }
+        
+        .log-info { color: var(--gruvbox-blue) !important; }
+        .log-warning { color: var(--gruvbox-yellow) !important; }
+        .log-error { color: var(--gruvbox-red) !important; }
+        .log-debug { color: var(--gruvbox-gray) !important; }
+        .log-python { color: var(--gruvbox-purple) !important; }
+        .log-duckdb { color: var(--gruvbox-green) !important; }
+        </style>
+        """)
+
+        # Add theme toggle functionality
+        ui.add_head_html("""
+        <script>
+        function toggleTheme() {
+            const body = document.body;
+            const currentTheme = body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            body.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+        
+        // Auto-detect theme on load
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.body.setAttribute('data-theme', savedTheme);
+            } else {
+                // Auto-detect based on system preference
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.body.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+            }
+        }
+        
+        // Initialize theme on page load
+        document.addEventListener('DOMContentLoaded', initTheme);
+        </script>
+        """)
+
+    def _toggle_theme(self):
+        """Toggle between light and dark theme."""
+        ui.run_javascript("toggleTheme()")
+
     def _render_main_interface(self):
         """Render the main Datasette-style interface."""
         with ui.header().classes("items-center px-4"):
             ui.label("FastVimes").classes("text-h5 font-bold")
             ui.space()
+            # Add theme toggle button
+            ui.button(icon="brightness_6", on_click=self._toggle_theme).props(
+                "flat round"
+            ).tooltip("Toggle theme")
             self._render_admin_nav()
 
         with ui.column().classes("w-full max-w-4xl mx-auto p-4"):
