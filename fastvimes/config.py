@@ -28,6 +28,11 @@ class FastVimesSettings(BaseSettings):
     title: str = "FastVimes"
     embedded_ui_enabled: bool = True
     
+    # DuckDB UI settings
+    duckdb_ui_enabled: bool = True
+    duckdb_ui_port: int = 4213
+    duckdb_ui_auto_launch: bool = True
+    
     # Security settings
     read_only: bool = False
     admin_enabled: bool = True

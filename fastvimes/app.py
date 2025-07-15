@@ -3,6 +3,11 @@
 import tempfile
 import atexit
 import shutil
+import subprocess
+import threading
+import time
+import urllib.request
+from urllib.error import URLError
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -49,6 +54,10 @@ class FastVimes:
         # Initialize API client for NiceGUI components (in-process mode for development)
         self.api_client = FastVimesAPIClient(db_service=self.db_service)
         
+        # DuckDB UI process tracking
+        self.duckdb_ui_process = None
+        self.duckdb_ui_thread = None
+        
         # Setup authentication if enabled
         if self.settings.auth_enabled:
             self.auth_manager, self.auth_ui = create_auth_middleware(self.settings)
@@ -66,6 +75,76 @@ class FastVimes:
         # Setup authentication routes if enabled
         if self.auth_manager:
             self._setup_auth_routes()
+        
+        # Register cleanup
+        atexit.register(self._cleanup)
+    
+    def _launch_duckdb_ui(self):
+        """Launch DuckDB UI extension in background thread."""
+        if not self.settings.admin_enabled or not self.settings.duckdb_ui_enabled or not self.settings.duckdb_ui_auto_launch:
+            return
+            
+        def start_duckdb_ui():
+            """Start DuckDB UI extension using Python API."""
+            try:
+                import duckdb
+                
+                # Create connection to same database
+                if str(self.db_path) == ":memory:":
+                    # For in-memory database, we need to share the connection
+                    # This is a limitation - DuckDB UI works best with file databases
+                    print("Warning: DuckDB UI works best with file databases, not in-memory databases")
+                    return
+                else:
+                    # Connect to the same database file
+                    conn = duckdb.connect(str(self.db_path))
+                
+                # Install and load UI extension
+                conn.execute("INSTALL ui")
+                conn.execute("LOAD ui")
+                
+                # Configure UI server
+                conn.execute(f"SET ui_local_port = {self.settings.duckdb_ui_port}")
+                
+                # Start UI server
+                conn.execute("CALL start_ui_server()")
+                
+                print(f"DuckDB UI started on port {self.settings.duckdb_ui_port}")
+                
+                # Keep the connection alive
+                while True:
+                    time.sleep(1)
+                    
+            except ImportError:
+                print("Warning: DuckDB not available for UI extension")
+            except Exception as e:
+                print(f"Warning: Could not start DuckDB UI: {e}")
+        
+        # Start DuckDB UI in background thread
+        self.duckdb_ui_thread = threading.Thread(target=start_duckdb_ui, daemon=True)
+        self.duckdb_ui_thread.start()
+        
+        # Wait a moment for UI to start
+        time.sleep(2)
+        
+        # Check if UI is available
+        try:
+            urllib.request.urlopen(f"http://localhost:{self.settings.duckdb_ui_port}", timeout=1)
+            print(f"DuckDB UI available at http://localhost:{self.settings.duckdb_ui_port}")
+        except (URLError, OSError):
+            print(f"DuckDB UI may not be available at http://localhost:{self.settings.duckdb_ui_port}")
+    
+    def _cleanup(self):
+        """Clean up resources on shutdown."""
+        if self.duckdb_ui_process:
+            try:
+                self.duckdb_ui_process.terminate()
+                self.duckdb_ui_process.wait(timeout=5)
+            except:
+                pass
+        
+        if hasattr(self, 'db_service') and self.db_service:
+            self.db_service.close()
         
     def _setup_temp_database(self):
         """Create temporary DuckLake with sample data."""
@@ -505,11 +584,12 @@ class FastVimes:
         # Embedded UIs
         @ui.page('/admin/duckdb-ui')
         def duckdb_ui():
-            ui.iframe('http://localhost:4213')  # DuckDB UI extension
+            ui.label('DuckDB UI').classes('text-h4 p-4')
+            ui.html(f'<iframe src="http://localhost:{self.settings.duckdb_ui_port}" width="100%" height="600" style="border: none;"></iframe>')
             
         @ui.page('/admin/api-docs')
         def api_docs():
-            ui.iframe('/docs')  # FastAPI auto-generated docs
+            ui.html('<iframe src="/docs" class="w-full h-full" style="border: none;"></iframe>')  # FastAPI auto-generated docs
             
     def _render_main_interface(self):
         """Render the main Datasette-style interface."""
@@ -564,6 +644,11 @@ class FastVimes:
         
     def serve(self, host: str = "127.0.0.1", port: int = 8000):
         """Start the FastVimes server."""
+        # Launch DuckDB UI if enabled
+        if self.settings.admin_enabled and self.settings.duckdb_ui_enabled and self.settings.duckdb_ui_auto_launch:
+            print("Launching DuckDB UI extension...")
+            self._launch_duckdb_ui()
+        
         # Mount FastAPI app for API routes
         app.mount('/api', self.api)
         
