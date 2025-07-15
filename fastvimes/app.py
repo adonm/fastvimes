@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from nicegui import ui, app
-from fastapi import FastAPI, Request, HTTPException, Depends, Query, File, UploadFile
+from fastapi import FastAPI, Request, HTTPException, Depends, Query, File, UploadFile, Body
 from fastapi.responses import Response
 
 from .config import FastVimesSettings
@@ -220,7 +220,7 @@ class FastVimes:
         @self.api.post("/v1/data/{table_name}")
         async def create_record(
             table_name: str, 
-            record_data: Dict[str, Any],
+            record_data: Dict[str, Any] = Body(...),
             current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
         ):
             """Create a new record in the specified table."""
@@ -240,8 +240,8 @@ class FastVimes:
         @self.api.put("/v1/data/{table_name}")
         async def update_records(
             table_name: str, 
-            record_data: Dict[str, Any],
             request: Request,
+            record_data: Dict[str, Any] = Body(),
             current_user: Dict[str, Any] = Depends(require_auth(self.auth_manager)) if self.auth_manager else None
         ):
             """Update records in the specified table."""
