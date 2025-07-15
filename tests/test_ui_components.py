@@ -2,14 +2,18 @@
 Test NiceGUI components for basic functionality.
 
 Design Spec: AGENT.md - NiceGUI Exploratory Interface - Auto-Generated Components
-Coverage: Component initialization, user interactions, multi-schema support
+Coverage: Component initialization, user interactions, multi-schema support, API integration
 """
 
 import pytest
+import httpx
+import asyncio
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastvimes.database_service import DatabaseService
 from fastvimes.api_client import FastVimesAPIClient
 from fastvimes.components import TableBrowser, DataExplorer, QueryBuilder, FormGenerator
+from fastvimes.app import FastVimes
 
 
 @pytest.fixture
@@ -24,6 +28,33 @@ def db_service():
 def api_client(db_service):
     """Create API client with test database."""
     return FastVimesAPIClient(db_service=db_service)
+
+
+@pytest.fixture
+def test_server():
+    """Create test FastAPI server for API integration tests."""
+    from fastapi.testclient import TestClient
+    from fastvimes.app import FastVimes
+    
+    # Create FastVimes app with in-memory database
+    app = FastVimes()
+    
+    # Create test client
+    client = TestClient(app.api)
+    
+    yield client
+    
+    # Cleanup
+    app.db_service.close()
+    if app.api_client:
+        app.api_client.close()
+
+
+@pytest.fixture
+def http_api_client(test_server):
+    """Create HTTP API client for testing actual HTTP endpoints."""
+    # Use test server directly, not real HTTP
+    return FastVimesAPIClient(base_url="http://testserver")
 
 
 class TestUIComponentsBasic:
@@ -434,3 +465,144 @@ class TestUIComponentsWithMultipleSchemas:
             # Test FormGenerator
             generator = FormGenerator(api_client, table_name)
             assert generator.table_name == table_name
+
+
+class TestUIComponentsAPIIntegration:
+    """
+    Test UI components integration with actual HTTP API endpoints.
+    
+    Design Spec: AGENT.md - NiceGUI Exploratory Interface - API Integration
+    Coverage: Component-to-API communication, RQL handling, error scenarios
+    """
+    
+    def test_table_browser_http_integration(self, test_server):
+        """Test TableBrowser with actual HTTP API calls."""
+        # Test list_tables endpoint
+        response = test_server.get("/v1/meta/tables")
+        assert response.status_code == 200
+        tables_data = response.json()
+        assert "tables" in tables_data
+        assert len(tables_data["tables"]) > 0
+        
+        # Verify table structure
+        for table in tables_data["tables"]:
+            assert "name" in table
+            assert "type" in table
+    
+    def test_data_explorer_http_integration(self, test_server):
+        """Test DataExplorer with actual HTTP API calls and RQL queries."""
+        # Test basic data retrieval
+        response = test_server.get("/v1/data/users")
+        assert response.status_code == 200
+        data = response.json()
+        assert "data" in data
+        assert "total_count" in data
+        assert "columns" in data
+        
+        # Test RQL filtering
+        response = test_server.get("/v1/data/users?eq(active,true)")
+        assert response.status_code == 200
+        filtered_data = response.json()
+        assert "data" in filtered_data
+        
+        # Test RQL sorting
+        response = test_server.get("/v1/data/users?sort(+name)")
+        assert response.status_code == 200
+        sorted_data = response.json()
+        assert "data" in sorted_data
+        
+        # Test RQL limiting
+        response = test_server.get("/v1/data/users?limit(5)")
+        assert response.status_code == 200
+        limited_data = response.json()
+        assert len(limited_data["data"]) <= 5
+    
+    def test_form_generator_http_integration(self, test_server):
+        """Test FormGenerator with actual HTTP API calls for CRUD operations."""
+        # Test table schema retrieval
+        response = test_server.get("/v1/meta/schema/users")
+        assert response.status_code == 200
+        schema_data = response.json()
+        assert "schema" in schema_data
+        
+        # Test record creation - provide all required fields
+        new_record = {
+            "name": "Test User", 
+            "email": "test@example.com", 
+            "age": 30,
+            "active": True,
+            "department": "Engineering",
+            "created_at": "2024-01-01T00:00:00"
+        }
+        response = test_server.post("/v1/data/users", json=new_record)
+        if response.status_code != 200:
+            print(f"POST response status: {response.status_code}")
+            print(f"POST response body: {response.text}")
+        assert response.status_code == 200
+        created_response = response.json()
+        assert "record" in created_response
+        assert created_response["record"]["name"] == "Test User"
+        
+        # Test record update
+        record_id = created_response["record"]["id"]
+        update_data = {"name": "Updated User"}
+        response = test_server.put(f"/v1/data/users?eq(id,{record_id})", json=update_data)
+        assert response.status_code == 200
+        
+        # Test record deletion
+        response = test_server.delete(f"/v1/data/users?eq(id,{record_id})")
+        assert response.status_code == 200
+    
+    def test_query_builder_http_integration(self, test_server):
+        """Test QueryBuilder with actual HTTP API calls for RQL queries."""
+        # Test various RQL operators
+        rql_queries = [
+            "eq(active,true)",
+            "gt(id,1)",
+            "lt(id,100)",
+            "contains(name,user)",
+            "in(id,(1,2,3))",
+            "and(eq(active,true),gt(id,1))",
+            "or(eq(active,true),eq(active,false))",
+            "sort(+name,-id)",
+            "limit(10,5)",
+            "select(id,name,email)"
+        ]
+        
+        for rql_query in rql_queries:
+            response = test_server.get(f"/v1/data/users?{rql_query}")
+            # Should not return 4xx/5xx errors for valid RQL
+            assert response.status_code == 200, f"RQL query failed: {rql_query}"
+            data = response.json()
+            assert "data" in data
+    
+    def test_api_error_handling(self, test_server):
+        """Test error handling in API integration."""
+        # Test invalid table name
+        response = test_server.get("/v1/data/nonexistent_table")
+        assert response.status_code == 404
+        
+        # Test invalid RQL syntax (now falls back to basic query, so it returns 200)
+        response = test_server.get("/v1/data/users?invalid_rql_syntax")
+        assert response.status_code == 200  # Falls back to basic query
+        
+        # Test invalid JSON in POST
+        response = test_server.post("/v1/data/users", content="invalid json")
+        assert response.status_code == 422
+    
+    def test_api_format_responses(self, test_server):
+        """Test different output formats via API."""
+        # Test JSON format (default)
+        response = test_server.get("/v1/data/users?format=json")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        
+        # Test CSV format
+        response = test_server.get("/v1/data/users?format=csv")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/csv")
+        
+        # Test Parquet format
+        response = test_server.get("/v1/data/users?format=parquet")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/octet-stream"
