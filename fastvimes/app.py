@@ -842,136 +842,143 @@ class FastVimes:
             return []
 
     def _setup_theme(self):
-        """Setup Gruvbox color theme with light/dark/auto modes."""
-        # Add custom CSS for Gruvbox theme
-        ui.add_head_html("""
-        <style>
-        :root {
-            /* Gruvbox Dark Theme */
-            --gruvbox-bg: #282828;
-            --gruvbox-bg-soft: #32302f;
-            --gruvbox-bg-hard: #1d2021;
-            --gruvbox-fg: #ebdbb2;
-            --gruvbox-fg-soft: #d5c4a1;
-            --gruvbox-red: #cc241d;
-            --gruvbox-green: #98971a;
-            --gruvbox-yellow: #d79921;
-            --gruvbox-blue: #458588;
-            --gruvbox-purple: #b16286;
-            --gruvbox-aqua: #689d6a;
-            --gruvbox-orange: #d65d0e;
-            --gruvbox-gray: #a89984;
+        """Setup Gruvbox color theme using NiceGUI's built-in theming."""
+        # Use NiceGUI's built-in dark mode functionality
+        dark_mode = ui.dark_mode()
+
+        # Bind to instance variable for theme state
+        self.dark_mode = dark_mode
+
+        # Define Gruvbox color palette (NiceGUI doesn't have a colors module, but we can use the color system)
+
+        # Set up custom Gruvbox colors
+        self.gruvbox_colors = {
+            "dark": {
+                "bg": "#282828",
+                "bg_soft": "#32302f",
+                "bg_hard": "#1d2021",
+                "fg": "#ebdbb2",
+                "red": "#cc241d",
+                "green": "#98971a",
+                "yellow": "#d79921",
+                "blue": "#458588",
+                "purple": "#b16286",
+                "aqua": "#689d6a",
+                "orange": "#d65d0e",
+                "gray": "#a89984",
+            },
+            "light": {
+                "bg": "#fbf1c7",
+                "bg_soft": "#f2e5bc",
+                "bg_hard": "#f9f5d7",
+                "fg": "#3c3836",
+                "red": "#cc241d",
+                "green": "#98971a",
+                "yellow": "#d79921",
+                "blue": "#458588",
+                "purple": "#b16286",
+                "aqua": "#689d6a",
+                "orange": "#d65d0e",
+                "gray": "#7c6f64",
+            },
         }
+
+        # Add Gruvbox theme CSS using NiceGUI's CSS system
+        ui.add_css(f"""
+        /* Gruvbox theme for NiceGUI */
+        body {{
+            background-color: {self.gruvbox_colors["dark"]["bg"]} !important;
+            color: {self.gruvbox_colors["dark"]["fg"]} !important;
+            transition: all 0.3s ease;
+        }}
         
-        /* Light theme (for light mode) */
-        [data-theme="light"] {
-            --gruvbox-bg: #fbf1c7;
-            --gruvbox-bg-soft: #f2e5bc;
-            --gruvbox-bg-hard: #f9f5d7;
-            --gruvbox-fg: #3c3836;
-            --gruvbox-fg-soft: #504945;
-            --gruvbox-red: #cc241d;
-            --gruvbox-green: #98971a;
-            --gruvbox-yellow: #d79921;
-            --gruvbox-blue: #458588;
-            --gruvbox-purple: #b16286;
-            --gruvbox-aqua: #689d6a;
-            --gruvbox-orange: #d65d0e;
-            --gruvbox-gray: #7c6f64;
-        }
-        
-        /* Apply theme to body */
-        body {
-            background-color: var(--gruvbox-bg) !important;
-            color: var(--gruvbox-fg) !important;
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
+        /* Light theme */
+        body.body--light {{
+            background-color: {self.gruvbox_colors["light"]["bg"]} !important;
+            color: {self.gruvbox_colors["light"]["fg"]} !important;
+        }}
         
         /* Header styling */
-        .q-header {
-            background-color: var(--gruvbox-bg-soft) !important;
-            border-bottom: 1px solid var(--gruvbox-gray) !important;
-        }
+        .q-header {{
+            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
+            border-bottom: 1px solid {self.gruvbox_colors["dark"]["gray"]} !important;
+        }}
+        
+        body.body--light .q-header {{
+            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
+            border-bottom: 1px solid {self.gruvbox_colors["light"]["gray"]} !important;
+        }}
         
         /* Button styling */
-        .q-btn {
-            color: var(--gruvbox-fg) !important;
-        }
+        .q-btn {{
+            color: {self.gruvbox_colors["dark"]["fg"]} !important;
+        }}
         
-        .q-btn:hover {
-            background-color: var(--gruvbox-bg-hard) !important;
-        }
+        body.body--light .q-btn {{
+            color: {self.gruvbox_colors["light"]["fg"]} !important;
+        }}
+        
+        .q-btn:hover {{
+            background-color: {self.gruvbox_colors["dark"]["bg_hard"]} !important;
+        }}
+        
+        body.body--light .q-btn:hover {{
+            background-color: {self.gruvbox_colors["light"]["bg_hard"]} !important;
+        }}
         
         /* Card styling */
-        .q-card {
-            background-color: var(--gruvbox-bg-soft) !important;
-            border: 1px solid var(--gruvbox-gray) !important;
-        }
+        .q-card {{
+            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
+            border: 1px solid {self.gruvbox_colors["dark"]["gray"]} !important;
+        }}
+        
+        body.body--light .q-card {{
+            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
+            border: 1px solid {self.gruvbox_colors["light"]["gray"]} !important;
+        }}
         
         /* Input styling */
-        .q-input {
-            color: var(--gruvbox-fg) !important;
-        }
+        .q-field__control {{
+            background-color: {self.gruvbox_colors["dark"]["bg_hard"]} !important;
+            color: {self.gruvbox_colors["dark"]["fg"]} !important;
+        }}
         
-        .q-field__control {
-            background-color: var(--gruvbox-bg-hard) !important;
-        }
+        body.body--light .q-field__control {{
+            background-color: {self.gruvbox_colors["light"]["bg_hard"]} !important;
+            color: {self.gruvbox_colors["light"]["fg"]} !important;
+        }}
         
         /* Table styling */
-        .q-table {
-            background-color: var(--gruvbox-bg-soft) !important;
-            color: var(--gruvbox-fg) !important;
-        }
+        .q-table {{
+            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
+            color: {self.gruvbox_colors["dark"]["fg"]} !important;
+        }}
         
-        .q-table__top {
-            background-color: var(--gruvbox-bg-hard) !important;
-        }
+        body.body--light .q-table {{
+            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
+            color: {self.gruvbox_colors["light"]["fg"]} !important;
+        }}
         
-        /* Log styling */
-        .log-entry {
-            border-color: var(--gruvbox-gray) !important;
-        }
+        /* Log colors (consistent across themes) */
+        .log-info {{ color: {self.gruvbox_colors["dark"]["blue"]} !important; }}
+        .log-warning {{ color: {self.gruvbox_colors["dark"]["yellow"]} !important; }}
+        .log-error {{ color: {self.gruvbox_colors["dark"]["red"]} !important; }}
+        .log-debug {{ color: {self.gruvbox_colors["dark"]["gray"]} !important; }}
+        .log-python {{ color: {self.gruvbox_colors["dark"]["purple"]} !important; }}
+        .log-duckdb {{ color: {self.gruvbox_colors["dark"]["green"]} !important; }}
         
-        .log-info { color: var(--gruvbox-blue) !important; }
-        .log-warning { color: var(--gruvbox-yellow) !important; }
-        .log-error { color: var(--gruvbox-red) !important; }
-        .log-debug { color: var(--gruvbox-gray) !important; }
-        .log-python { color: var(--gruvbox-purple) !important; }
-        .log-duckdb { color: var(--gruvbox-green) !important; }
-        </style>
-        """)
-
-        # Add theme toggle functionality
-        ui.add_head_html("""
-        <script>
-        function toggleTheme() {
-            const body = document.body;
-            const currentTheme = body.getAttribute('data-theme');
-            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-            body.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-        }
+        .log-entry {{
+            border-color: {self.gruvbox_colors["dark"]["gray"]} !important;
+        }}
         
-        // Auto-detect theme on load
-        function initTheme() {
-            const savedTheme = localStorage.getItem('theme');
-            if (savedTheme) {
-                document.body.setAttribute('data-theme', savedTheme);
-            } else {
-                // Auto-detect based on system preference
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                document.body.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-            }
-        }
-        
-        // Initialize theme on page load
-        document.addEventListener('DOMContentLoaded', initTheme);
-        </script>
+        body.body--light .log-entry {{
+            border-color: {self.gruvbox_colors["light"]["gray"]} !important;
+        }}
         """)
 
     def _toggle_theme(self):
-        """Toggle between light and dark theme."""
-        ui.run_javascript("toggleTheme()")
+        """Toggle between light and dark theme using NiceGUI's built-in dark mode."""
+        self.dark_mode.toggle()
 
     def _render_main_interface(self):
         """Render the main Datasette-style interface."""
