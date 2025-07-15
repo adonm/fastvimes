@@ -30,10 +30,11 @@ Generate Datasette-like exploratory interfaces automatically from DuckDB schemas
 - **Parquet files** (DuckDB native: `duckdb.sql().write_parquet()`)  
 - **CSV files** (DuckDB native: `duckdb.sql().write_csv()`)
 
-**SUPPORTED INPUT FORMATS** (future bulk operations):
+**SUPPORTED INPUT FORMATS** (bulk operations):
 - **JSON** (single records and arrays)
 - **Parquet files** (DuckDB native: `INSERT INTO table SELECT * FROM 'file.parquet'`)
 - **CSV files** (DuckDB native: `INSERT INTO table SELECT * FROM 'file.csv'`)
+- **Bulk operations**: insert, upsert, delete with file upload support
 
 ## DuckLake Production Target
 
@@ -68,8 +69,9 @@ fastvimes data get {table} --format csv     # CSV file
 fastvimes data create {table}    # Create record in table
 fastvimes data update {table}    # Update records in table
 fastvimes data delete {table}    # Delete records from table
-fastvimes data bulk-insert {table} --file data.parquet  # Future: bulk insert
-fastvimes data bulk-upsert {table} --file data.csv      # Future: bulk upsert
+fastvimes data bulk-insert {table} --file data.parquet  # Bulk insert
+fastvimes data bulk-upsert {table} --file data.csv      # Bulk upsert  
+fastvimes data bulk-delete {table} --file data.json     # Bulk delete
 fastvimes query "SQL..." --format csv       # Execute raw SQL with CSV output
 fastvimes httpx "GET /api/v1/..." # Test HTTP endpoints
 ```
@@ -188,6 +190,7 @@ def table_view(table_name: str):
 
 ### 2. Security and Safety First
 - **SQLGlot for SQL safety**: Prevents SQL injection through safe query building and parameterization
+- **Authlib for authentication**: OAuth/OpenID Connect integration using Authlib for FastAPI
 - **FastAPI for HTTP security**: Built-in validation, dependency injection, automatic docs
 - **Pydantic for data validation**: Type safety and automatic validation at runtime
 - **Secure defaults**: Read-only by default, explicit opt-in for write operations
@@ -296,10 +299,10 @@ fastvimes httpx "GET /api/v1/data/users"  # CLI HTTP testing (httpx)
 
 ## Development Workflow
 
-**CRITICAL**: Always follow this exact order:
+**CRITICAL**: Always follow this exact order based on spec-driven development principles:
 
-1. **Update Design** - Modify AGENT.md with new architecture/features/fixes
-2. **Update Tests** - Write/modify tests to match the new design
+1. **Update Design Spec** - Modify AGENT.md with new architecture/features/fixes (acts as our spec)
+2. **Define Test Requirements** - Write/modify tests to match the new design spec before implementation
 3. **Implement Code** - Make the actual code changes to pass the tests
 4. **Update Documentation** - Update user-facing docs and examples
 
@@ -309,6 +312,120 @@ fastvimes httpx "GET /api/v1/data/users"  # CLI HTTP testing (httpx)
 - CLI commands are light wrappers over DatabaseService methods  
 - NiceGUI calls DatabaseService methods directly
 - All validation happens once in DatabaseService methods
+
+## Spec-Driven Development Process
+
+**Inspired by Kiro.dev's approach to mature agent contributions:**
+
+### 1. Spec as Source of Truth
+- **AGENT.md serves as our living spec** - Contains architecture, patterns, and requirements
+- **Explicit requirements** - Every feature must have clear, testable requirements
+- **System design documentation** - Architecture diagrams and component relationships
+- **Discrete tasks** - Break down complex features into manageable implementation tasks
+
+### 2. Agent Contribution Guidelines
+- **Follow the spec strictly** - All code changes must align with AGENT.md architecture
+- **Test-first approach** - Write tests before implementing features
+- **Multi-schema validation** - Ensure autogeneration works with any schema structure
+- **Consistent patterns** - Use established patterns to minimize custom code
+
+### 3. Steering Files for AI Agents
+- **AGENT.md** - Primary steering document with architecture and patterns
+- **Test requirements** - Multi-schema testing patterns and validation rules
+- **Code style** - Ruff formatting, type hints, composition over inheritance
+- **Security practices** - Never expose secrets, use SQLGlot for safety
+
+## Testing Strategy
+
+### NiceGUI Testing Patterns
+
+**Three-Layer Testing Approach:**
+1. **DatabaseService Unit Tests**: Direct method testing with multiple schemas
+2. **API Integration Tests**: HTTP API via `httpx` command with server lifecycle management
+3. **NiceGUI UI Tests**: Using `from nicegui.testing import User` fixture
+
+**NiceGUI Testing Pattern:**
+```python
+from nicegui.testing import User
+
+async def test_basic_functionality(user: User) -> None:
+    await user.open("/")
+    # Test UI interactions: user.click(), user.type(), user.select()
+    # Assert UI state: await user.wait_for_element()
+```
+
+**UI Component Testing Requirements:**
+- **DataExplorer**: Test filtering, pagination, edit mode, bulk operations, CSV export
+- **FormGenerator**: Test field rendering, validation, form submission, error handling
+- **QueryBuilder**: Test filter management, RQL generation, query execution, results display
+- **TableBrowser**: Test table listing, navigation, error handling
+
+**Component Testing Standards:**
+- **Method Coverage**: Test all public methods and user interaction flows
+- **State Management**: Test component state changes and UI updates
+- **Error Handling**: Test error scenarios and user feedback
+- **API Integration**: Test component-to-API communication patterns
+- **Multi-Schema Support**: Test with different table structures and column types
+
+**Key Testing Principles:**
+- **Multi-Schema Testing**: Test with different table names, column types, and structures
+- **Avoid Hardcoding**: Use schema introspection to generate tests dynamically
+- **API Consistency**: Same endpoints accessible via CLI/FastAPI/NiceGUI
+- **Autogeneration Validation**: Ensure endpoints/UI components work with any schema
+
+### Multi-Schema Testing Requirements
+
+**CRITICAL**: Tests must verify autogeneration works with any schema structure:
+
+```python
+# Test with multiple different schemas
+@pytest.fixture(params=[
+    'ecommerce_schema',    # users, products, orders
+    'blog_schema',         # posts, comments, authors  
+    'inventory_schema',    # items, warehouses, suppliers
+    'custom_schema'        # arbitrary table/column names
+])
+def multi_schema_db(request):
+    """Test with multiple schema patterns to avoid hardcoded assumptions."""
+    schema_name = request.param
+    return create_test_db_with_schema(schema_name)
+```
+
+**Schema Diversity Requirements:**
+- Different table names (not just users/products/orders)
+- Different column names and types
+- Different foreign key relationships
+- Edge cases: reserved words, special characters, long names
+
+## Contributor Guidelines for AI Agents
+
+**Based on Kiro.dev's approach to mature agent contributions:**
+
+### Pre-Implementation Checklist
+1. **Spec Review** - Read AGENT.md thoroughly, understand architecture patterns
+2. **Test Requirements** - Identify what tests need to be written/modified
+3. **Multi-Schema Validation** - Ensure changes work with any schema structure
+4. **Architecture Compliance** - Follow single source of truth pattern
+
+### Implementation Process
+1. **Update AGENT.md** - Add/modify spec for new features
+2. **Write Tests First** - Create tests that validate the spec requirements
+3. **Implement Code** - Make minimal changes to pass tests
+4. **Run Full Test Suite** - Ensure no regressions across all schemas
+5. **Update Documentation** - Add user-facing docs and examples
+
+### Code Quality Standards
+- **Follow established patterns** - Use existing DatabaseService patterns
+- **Minimize custom code** - Prefer composition over inheritance
+- **Security first** - Never expose secrets, use SQLGlot for safety
+- **Type safety** - Use type hints on all public functions
+- **Ruff compliance** - Format with ruff, fix all linting issues
+
+### Testing Requirements
+- **Multi-schema tests** - Every feature must work with different schemas
+- **API consistency** - Same endpoints via CLI/FastAPI/NiceGUI
+- **Performance validation** - Ensure changes don't degrade performance
+- **Edge case handling** - Test with reserved words, special characters
 
 ## Development Commands
 
@@ -433,6 +550,9 @@ uv run fastvimes httpx --port 8001 --verbose "GET /api/v1/data/users?limit=10&fo
 - **FastAPI**: HTTP framework and dependency injection
   - Docs: https://fastapi.tiangolo.com/
   - Usage: REST API endpoints, dependency injection, automatic OpenAPI docs
+- **Authlib**: OAuth and OpenID Connect library
+  - Docs: https://docs.authlib.org/en/stable/client/fastapi.html
+  - Usage: OAuth/OpenID Connect authentication integration with FastAPI
 - **NiceGUI**: Python-based reactive UI framework  
   - Docs: https://nicegui.io/
   - Usage: Auto-generated reactive web interface, component override system

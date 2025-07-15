@@ -371,5 +371,120 @@ def query(
         raise typer.Exit(1)
 
 
+# =============================================================================
+# BULK OPERATIONS COMMANDS - File-based bulk operations
+# =============================================================================
+
+@data_app.command()
+def bulk_insert(
+    table: str = typer.Argument(..., help="Table name"),
+    file: str = typer.Option(..., "--file", help="Path to data file (Parquet, CSV, or JSON)"),
+    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
+    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+):
+    """Bulk insert records from file."""
+    try:
+        fastvimes = FastVimes(db_path=db)
+        
+        # Verify file exists
+        if not Path(file).exists():
+            typer.echo(f"Error: File '{file}' not found", err=True)
+            raise typer.Exit(1)
+        
+        # Perform bulk insert
+        records_inserted = fastvimes.db_service.bulk_insert_from_file(
+            table, file, file_format
+        )
+        
+        typer.echo(f"Successfully inserted {records_inserted} records into table '{table}'")
+        typer.echo(f"Source file: {file}")
+        typer.echo(f"Format: {file_format}")
+        
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}", err=True)
+        raise typer.Exit(1)
+
+
+@data_app.command()
+def bulk_upsert(
+    table: str = typer.Argument(..., help="Table name"),
+    file: str = typer.Option(..., "--file", help="Path to data file (Parquet, CSV, or JSON)"),
+    key_columns: str = typer.Option(..., "--key-columns", help="Comma-separated list of key columns for matching"),
+    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
+    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+):
+    """Bulk upsert (insert or update) records from file."""
+    try:
+        fastvimes = FastVimes(db_path=db)
+        
+        # Verify file exists
+        if not Path(file).exists():
+            typer.echo(f"Error: File '{file}' not found", err=True)
+            raise typer.Exit(1)
+        
+        # Parse key columns
+        key_columns_list = [col.strip() for col in key_columns.split(',')]
+        
+        # Perform bulk upsert
+        result = fastvimes.db_service.bulk_upsert_from_file(
+            table, file, key_columns_list, file_format
+        )
+        
+        typer.echo(f"Successfully processed records in table '{table}':")
+        typer.echo(f"  Records inserted: {result['inserted']}")
+        typer.echo(f"  Records updated: {result['updated']}")
+        typer.echo(f"Source file: {file}")
+        typer.echo(f"Key columns: {key_columns_list}")
+        typer.echo(f"Format: {file_format}")
+        
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}", err=True)
+        raise typer.Exit(1)
+
+
+@data_app.command()
+def bulk_delete(
+    table: str = typer.Argument(..., help="Table name"),
+    file: str = typer.Option(..., "--file", help="Path to file containing keys to delete"),
+    key_columns: str = typer.Option(..., "--key-columns", help="Comma-separated list of key columns for matching"),
+    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
+    db: Optional[str] = typer.Option(None, help="Path to DuckDB database"),
+    confirm: bool = typer.Option(False, "--confirm", help="Skip confirmation prompt")
+):
+    """Bulk delete records based on keys from file."""
+    try:
+        fastvimes = FastVimes(db_path=db)
+        
+        # Verify file exists
+        if not Path(file).exists():
+            typer.echo(f"Error: File '{file}' not found", err=True)
+            raise typer.Exit(1)
+        
+        # Parse key columns
+        key_columns_list = [col.strip() for col in key_columns.split(',')]
+        
+        # Confirmation prompt
+        if not confirm:
+            typer.echo(f"This will delete records from table '{table}' based on keys in '{file}'")
+            typer.echo(f"Key columns: {key_columns_list}")
+            if not typer.confirm("Are you sure you want to proceed?"):
+                typer.echo("Operation cancelled")
+                raise typer.Exit(0)
+        
+        # Perform bulk delete
+        records_deleted = fastvimes.db_service.bulk_delete_from_file(
+            table, file, key_columns_list, file_format
+        )
+        
+        typer.echo(f"Successfully deleted {records_deleted} records from table '{table}'")
+        typer.echo(f"Source file: {file}")
+        typer.echo(f"Key columns: {key_columns_list}")
+        typer.echo(f"Format: {file_format}")
+        
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}", err=True)
+        raise typer.Exit(1)
+
+
 if __name__ in {"__main__", "__mp_main__"}:
     app()

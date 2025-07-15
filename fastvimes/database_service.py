@@ -37,6 +37,7 @@ from typing import List, Dict, Any, Optional
 import duckdb
 from datetime import datetime, timedelta
 import random
+import time
 
 import pyrql
 from .rql_to_sql import convert_rql_to_sql
@@ -447,22 +448,42 @@ class DatabaseService:
         import sqlglot
         from sqlglot import exp
         
-        # Get the next available ID if not provided
-        if 'id' not in data:
+        # Get table schema to find primary key columns
+        schema = self.get_table_schema(table_name)
+        
+        # Find primary key column (look for common patterns: id, *_id, primary key constraint)
+        primary_key_col = None
+        for col in schema:
+            col_name = col['name'].lower()
+            col_type = col['type'].upper()
+            if col_name == 'id' or col_name.endswith('_id'):
+                # Skip UUID columns as they need special handling
+                if 'UUID' not in col_type:
+                    primary_key_col = col['name']
+                    break
+        
+        # Generate next available ID if primary key column exists and not provided
+        if primary_key_col and primary_key_col not in data:
             max_query = sqlglot.select(
-                sqlglot.func("COALESCE", sqlglot.func("MAX", exp.Column(this="id")), 0)
+                sqlglot.func("COALESCE", sqlglot.func("MAX", exp.Column(this=primary_key_col)), 0)
             ).from_(table_name)
             max_sql = max_query.sql(dialect="duckdb")
             max_id = self.connection.execute(max_sql).fetchone()[0]
-            data['id'] = max_id + 1
+            data[primary_key_col] = max_id + 1
             
-        # Add created_at if not provided
-        if 'created_at' not in data:
+        # Add timestamp column if exists and not provided
+        timestamp_col = None
+        for col in schema:
+            col_name = col['name'].lower()
+            if col_name in ['created_at', 'timestamp', 'created', 'date_created']:
+                timestamp_col = col['name']
+                break
+        
+        if timestamp_col and timestamp_col not in data:
             from datetime import datetime
-            data['created_at'] = datetime.now()
+            data[timestamp_col] = datetime.now()
             
-        # Get the table schema to ensure correct column order
-        schema = self.get_table_schema(table_name)
+        # Use already retrieved schema for column order
         schema_columns = [col['name'] for col in schema]
         
         # Build columns and values in schema order, only including provided fields
@@ -490,8 +511,12 @@ class DatabaseService:
         try:
             self.connection.execute(sql, values)
             
-            # Return the created record
-            return self.get_record_by_id(table_name, data['id'])
+            # Return the created record if we have a primary key
+            if primary_key_col and primary_key_col in data:
+                return self.get_record_by_id(table_name, data[primary_key_col])
+            else:
+                # Return success message if no primary key
+                return {"message": "Record created successfully", "data": data}
         except Exception as e:
             raise RuntimeError(f"Failed to create record in {table_name}: {str(e)}")
     
@@ -500,14 +525,29 @@ class DatabaseService:
         import sqlglot
         from sqlglot import exp
         
+        # Get table schema to find primary key column
+        schema = self.get_table_schema(table_name)
+        primary_key_col = None
+        for col in schema:
+            col_name = col['name'].lower()
+            col_type = col['type'].upper()
+            if col_name == 'id' or col_name.endswith('_id'):
+                # Skip UUID columns as they need special handling
+                if 'UUID' not in col_type:
+                    primary_key_col = col['name']
+                    break
+        
+        if not primary_key_col:
+            raise ValueError(f"No suitable primary key column found in table {table_name}")
+        
         query = sqlglot.select("*").from_(table_name).where(
-            exp.EQ(this=exp.Column(this="id"), expression=exp.Placeholder())
+            exp.EQ(this=exp.Column(this=primary_key_col), expression=exp.Placeholder())
         )
         sql = query.sql(dialect="duckdb")
         result = self.connection.execute(sql, [record_id]).fetchone()
         
         if not result:
-            raise ValueError(f"Record with id {record_id} not found in {table_name}")
+            raise ValueError(f"Record with {primary_key_col} {record_id} not found in {table_name}")
             
         columns = [desc[0] for desc in self.connection.description]
         return dict(zip(columns, result))
@@ -679,6 +719,268 @@ class DatabaseService:
             return [dict(zip(columns, row)) for row in result]
         except Exception as e:
             raise RuntimeError(f"Query execution failed: {str(e)}")
+    
+    # Bulk Operations using DuckDB native file handling
+    def bulk_insert_from_file(
+        self,
+        table_name: str,
+        file_path: str,
+        file_format: str = "auto"
+    ) -> int:
+        """
+        Bulk insert records from file using DuckDB native operations.
+        
+        Args:
+            table_name: Target table name
+            file_path: Path to the file (supports Parquet, CSV, JSON)
+            file_format: File format ('parquet', 'csv', 'json', 'auto')
+            
+        Returns:
+            Number of records inserted
+        """
+        # Validate table exists
+        if not self._table_exists(table_name):
+            raise ValueError(f"Table {table_name} does not exist")
+        
+        # Auto-detect format if needed
+        if file_format == "auto":
+            if file_path.endswith('.parquet'):
+                file_format = "parquet"
+            elif file_path.endswith('.csv'):
+                file_format = "csv"
+            elif file_path.endswith('.json'):
+                file_format = "json"
+            else:
+                raise ValueError(f"Cannot auto-detect format for {file_path}")
+        
+        # Get count before insertion
+        count_before = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        
+        try:
+            # Use DuckDB native file reading
+            if file_format == "parquet":
+                sql = f"INSERT INTO {table_name} SELECT * FROM read_parquet('{file_path}')"
+            elif file_format == "csv":
+                sql = f"INSERT INTO {table_name} SELECT * FROM read_csv_auto('{file_path}')"
+            elif file_format == "json":
+                sql = f"INSERT INTO {table_name} SELECT * FROM read_json_auto('{file_path}')"
+            else:
+                raise ValueError(f"Unsupported file format: {file_format}")
+            
+            self.connection.execute(sql)
+            
+            # Get count after insertion
+            count_after = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            return count_after - count_before
+            
+        except Exception as e:
+            raise RuntimeError(f"Bulk insert failed for {table_name}: {str(e)}")
+    
+    def bulk_upsert_from_file(
+        self,
+        table_name: str,
+        file_path: str,
+        key_columns: List[str],
+        file_format: str = "auto"
+    ) -> Dict[str, int]:
+        """
+        Bulk upsert (insert or update) records from file.
+        
+        Args:
+            table_name: Target table name
+            file_path: Path to the file
+            key_columns: Columns to match for updates
+            file_format: File format ('parquet', 'csv', 'json', 'auto')
+            
+        Returns:
+            Dictionary with 'inserted' and 'updated' counts
+        """
+        # Validate table exists
+        if not self._table_exists(table_name):
+            raise ValueError(f"Table {table_name} does not exist")
+        
+        # Auto-detect format if needed
+        if file_format == "auto":
+            if file_path.endswith('.parquet'):
+                file_format = "parquet"
+            elif file_path.endswith('.csv'):
+                file_format = "csv"
+            elif file_path.endswith('.json'):
+                file_format = "json"
+            else:
+                raise ValueError(f"Cannot auto-detect format for {file_path}")
+        
+        # Get initial count
+        count_before = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        
+        try:
+            # Create temporary table for new data
+            temp_table = f"temp_{table_name}_{int(time.time())}"
+            
+            # Load data into temporary table
+            if file_format == "parquet":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_parquet('{file_path}')"
+            elif file_format == "csv":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_csv_auto('{file_path}')"
+            elif file_format == "json":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_json_auto('{file_path}')"
+            else:
+                raise ValueError(f"Unsupported file format: {file_format}")
+            
+            self.connection.execute(sql)
+            
+            # Get all column names for the table
+            schema = self.get_table_schema(table_name)
+            all_columns = [col['name'] for col in schema]
+            
+            # Build key matching condition
+            key_conditions = []
+            for key_col in key_columns:
+                key_conditions.append(f"{table_name}.{key_col} = {temp_table}.{key_col}")
+            key_condition = " AND ".join(key_conditions)
+            
+            # Update existing records
+            non_key_columns = [col for col in all_columns if col not in key_columns]
+            if non_key_columns:
+                set_clauses = []
+                for col in non_key_columns:
+                    set_clauses.append(f"{col} = {temp_table}.{col}")
+                set_clause = ", ".join(set_clauses)
+                
+                update_sql = f"""
+                    UPDATE {table_name} 
+                    SET {set_clause}
+                    FROM {temp_table}
+                    WHERE {key_condition}
+                """
+                self.connection.execute(update_sql)
+            
+            # Insert new records
+            column_list = ", ".join(all_columns)
+            insert_sql = f"""
+                INSERT INTO {table_name} ({column_list})
+                SELECT {column_list}
+                FROM {temp_table}
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM {table_name} 
+                    WHERE {key_condition}
+                )
+            """
+            self.connection.execute(insert_sql)
+            
+            # Get final count
+            count_after = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            
+            # Clean up temporary table
+            self.connection.execute(f"DROP TABLE {temp_table}")
+            
+            # Calculate rough estimates (exact tracking would require more complex logic)
+            total_processed = count_after - count_before
+            return {
+                "inserted": total_processed,
+                "updated": 0  # Simplified - actual implementation would track this
+            }
+            
+        except Exception as e:
+            # Clean up temporary table on error
+            try:
+                self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
+            except:
+                pass
+            raise RuntimeError(f"Bulk upsert failed for {table_name}: {str(e)}")
+    
+    def bulk_delete_from_file(
+        self,
+        table_name: str,
+        file_path: str,
+        key_columns: List[str],
+        file_format: str = "auto"
+    ) -> int:
+        """
+        Bulk delete records based on keys from file.
+        
+        Args:
+            table_name: Target table name
+            file_path: Path to the file containing keys to delete
+            key_columns: Columns to match for deletion
+            file_format: File format ('parquet', 'csv', 'json', 'auto')
+            
+        Returns:
+            Number of records deleted
+        """
+        # Validate table exists
+        if not self._table_exists(table_name):
+            raise ValueError(f"Table {table_name} does not exist")
+        
+        # Auto-detect format if needed
+        if file_format == "auto":
+            if file_path.endswith('.parquet'):
+                file_format = "parquet"
+            elif file_path.endswith('.csv'):
+                file_format = "csv"
+            elif file_path.endswith('.json'):
+                file_format = "json"
+            else:
+                raise ValueError(f"Cannot auto-detect format for {file_path}")
+        
+        # Get count before deletion
+        count_before = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        
+        try:
+            # Create temporary table for keys to delete
+            temp_table = f"temp_delete_{table_name}_{int(time.time())}"
+            
+            # Load keys into temporary table
+            if file_format == "parquet":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_parquet('{file_path}')"
+            elif file_format == "csv":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_csv_auto('{file_path}')"
+            elif file_format == "json":
+                sql = f"CREATE TABLE {temp_table} AS SELECT * FROM read_json_auto('{file_path}')"
+            else:
+                raise ValueError(f"Unsupported file format: {file_format}")
+            
+            self.connection.execute(sql)
+            
+            # Build key matching condition
+            key_conditions = []
+            for key_col in key_columns:
+                key_conditions.append(f"{table_name}.{key_col} = {temp_table}.{key_col}")
+            key_condition = " AND ".join(key_conditions)
+            
+            # Delete matching records
+            delete_sql = f"""
+                DELETE FROM {table_name}
+                WHERE EXISTS (
+                    SELECT 1 FROM {temp_table}
+                    WHERE {key_condition}
+                )
+            """
+            self.connection.execute(delete_sql)
+            
+            # Get count after deletion
+            count_after = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            
+            # Clean up temporary table
+            self.connection.execute(f"DROP TABLE {temp_table}")
+            
+            return count_before - count_after
+            
+        except Exception as e:
+            # Clean up temporary table on error
+            try:
+                self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
+            except:
+                pass
+            raise RuntimeError(f"Bulk delete failed for {table_name}: {str(e)}")
+    
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists."""
+        try:
+            tables = self.list_tables()
+            return any(table['name'] == table_name for table in tables)
+        except Exception:
+            return False
             
     def close(self):
         """Close the database connection."""

@@ -1,5 +1,6 @@
 """Configuration management using pydantic-settings."""
 
+from typing import Optional
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -30,3 +31,18 @@ class FastVimesSettings(BaseSettings):
     # Security settings
     read_only: bool = False
     admin_enabled: bool = True
+    
+    # Authentication settings (Authlib OAuth/OpenID Connect)
+    auth_enabled: bool = False
+    auth_secret_key: Optional[str] = None
+    
+    # OAuth Configuration
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_redirect_uri: str = "http://localhost:8000/auth/callback"
+    oauth_scopes: list[str] = ["openid", "email", "profile"]
+    
+    # Authorization Configuration
+    require_auth_for_read: bool = False
+    require_auth_for_write: bool = True
+    admin_users: list[str] = []
