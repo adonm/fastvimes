@@ -3,14 +3,10 @@
 import atexit
 import logging
 import shutil
-import threading
-import time
-import urllib.request
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
 
 from fastapi import (
     Body,
@@ -53,6 +49,7 @@ class LogHandler(logging.Handler):
             "module": record.module,
             "funcName": record.funcName,
             "lineno": record.lineno,
+            "source": "Python",
         }
         self.logs.append(log_entry)
 
@@ -117,9 +114,8 @@ class FastVimes:
         # Initialize API client for NiceGUI components (in-process mode for development)
         self.api_client = FastVimesAPIClient(db_service=self.db_service)
 
-        # DuckDB UI process tracking
-        self.duckdb_ui_process = None
-        self.duckdb_ui_thread = None
+        # DuckDB UI status tracking
+        self.duckdb_ui_enabled = False
 
         # Setup authentication if enabled
         if self.settings.auth_enabled:
@@ -142,87 +138,48 @@ class FastVimes:
         if self.auth_manager:
             self._setup_auth_routes()
 
+        # Setup DuckDB UI extension
+        self._setup_duckdb_ui()
+
         # Register cleanup
         atexit.register(self._cleanup)
 
-    def _launch_duckdb_ui(self):
-        """Launch DuckDB UI extension in background thread."""
-        if (
-            not self.settings.admin_enabled
-            or not self.settings.duckdb_ui_enabled
-            or not self.settings.duckdb_ui_auto_launch
-        ):
+    def _setup_duckdb_ui(self):
+        """Setup DuckDB UI extension using built-in commands."""
+        if not self.settings.admin_enabled or not self.settings.duckdb_ui_enabled:
             return
 
-        def start_duckdb_ui():
-            """Start DuckDB UI extension using Python API."""
-            try:
-                import duckdb
+        try:
+            # Use the same connection from database service
+            conn = self.db_service.connection
 
-                # Create connection to same database
-                if str(self.db_path) == ":memory:":
-                    # For in-memory database, we need to share the connection
-                    # This is a limitation - DuckDB UI works best with file databases
-                    self.logger.warning(
-                        "DuckDB UI works best with file databases, not in-memory databases"
-                    )
-                    return
-                else:
-                    # Connect to the same database file
-                    conn = duckdb.connect(str(self.db_path))
+            # Install and load UI extension
+            conn.execute("INSTALL ui")
+            conn.execute("LOAD ui")
 
-                # Install and load UI extension
-                conn.execute("INSTALL ui")
-                conn.execute("LOAD ui")
+            # Configure UI server
+            conn.execute(f"SET ui_local_port = {self.settings.duckdb_ui_port}")
 
-                # Configure UI server
-                conn.execute(f"SET ui_local_port = {self.settings.duckdb_ui_port}")
+            # Enable logging if admin enabled
+            if self.settings.admin_enabled:
+                conn.execute("PRAGMA enable_logging")
+                self.logger.info("DuckDB logging enabled")
 
-                # Start UI server
+            # Start UI server if auto-launch is enabled
+            if self.settings.duckdb_ui_auto_launch:
                 conn.execute("CALL start_ui_server()")
-
                 self.logger.info(
                     f"DuckDB UI started on port {self.settings.duckdb_ui_port}"
                 )
 
-                # Keep the connection alive
-                while True:
-                    time.sleep(1)
+            self.duckdb_ui_enabled = True
 
-            except ImportError:
-                self.logger.warning("DuckDB not available for UI extension")
-            except Exception as e:
-                self.logger.error(f"Could not start DuckDB UI: {e}")
-
-        # Start DuckDB UI in background thread
-        self.duckdb_ui_thread = threading.Thread(target=start_duckdb_ui, daemon=True)
-        self.duckdb_ui_thread.start()
-
-        # Wait a moment for UI to start
-        time.sleep(2)
-
-        # Check if UI is available
-        try:
-            urllib.request.urlopen(
-                f"http://localhost:{self.settings.duckdb_ui_port}", timeout=1
-            )
-            self.logger.info(
-                f"DuckDB UI available at http://localhost:{self.settings.duckdb_ui_port}"
-            )
-        except (URLError, OSError):
-            self.logger.warning(
-                f"DuckDB UI may not be available at http://localhost:{self.settings.duckdb_ui_port}"
-            )
+        except Exception as e:
+            self.logger.error(f"Could not setup DuckDB UI: {e}")
+            self.duckdb_ui_enabled = False
 
     def _cleanup(self):
         """Clean up resources on shutdown."""
-        if self.duckdb_ui_process:
-            try:
-                self.duckdb_ui_process.terminate()
-                self.duckdb_ui_process.wait(timeout=5)
-            except Exception:
-                pass
-
         if hasattr(self, "db_service") and self.db_service:
             self.db_service.close()
 
@@ -824,14 +781,21 @@ class FastVimes:
             return
 
         self.logs_container.clear()
-        logs = self.log_handler.get_logs()
 
-        if not logs:
+        # Get both Python logs and DuckDB logs
+        python_logs = self.log_handler.get_logs()
+        duckdb_logs = self._get_duckdb_logs()
+
+        # Combine and sort logs by timestamp
+        all_logs = python_logs + duckdb_logs
+        all_logs.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        if not all_logs:
             with self.logs_container:
                 ui.label("No logs available").classes("text-gray-500 italic")
         else:
             with self.logs_container:
-                for log in reversed(logs):  # Show newest first
+                for log in all_logs:  # Already sorted newest first
                     level_color = {
                         "DEBUG": "text-gray-500",
                         "INFO": "text-blue-600",
@@ -840,14 +804,41 @@ class FastVimes:
                         "CRITICAL": "text-red-800",
                     }.get(log["level"], "text-gray-700")
 
+                    source_color = (
+                        "text-green-600"
+                        if log.get("source") == "DuckDB"
+                        else "text-purple-600"
+                    )
+                    source_label = log.get("source", "Python")
+
                     with ui.row().classes("w-full items-start gap-2 p-2 border-b"):
                         ui.label(log["timestamp"][:19]).classes(
                             "text-xs text-gray-500 min-w-fit"
+                        )
+                        ui.label(source_label).classes(
+                            f"text-xs font-semibold {source_color} min-w-fit"
                         )
                         ui.label(log["level"]).classes(
                             f"text-xs font-semibold {level_color} min-w-fit"
                         )
                         ui.label(log["message"]).classes("text-sm flex-1")
+
+    def _get_duckdb_logs(self):
+        """Get DuckDB logs from the connection."""
+        try:
+            # Try to get DuckDB logs if logging is enabled
+            if self.duckdb_ui_enabled and hasattr(self, "db_service"):
+                # Check if we can get logs from DuckDB
+                result = self.db_service.connection.execute(
+                    "PRAGMA log_query_path"
+                ).fetchall()
+                if result:
+                    # This is a placeholder - DuckDB logs would need to be read from log files
+                    # For now, just return empty list
+                    return []
+            return []
+        except Exception:
+            return []
 
     def _render_main_interface(self):
         """Render the main Datasette-style interface."""
@@ -902,14 +893,7 @@ class FastVimes:
 
     def serve(self, host: str = "127.0.0.1", port: int = 8000):
         """Start the FastVimes server."""
-        # Launch DuckDB UI if enabled
-        if (
-            self.settings.admin_enabled
-            and self.settings.duckdb_ui_enabled
-            and self.settings.duckdb_ui_auto_launch
-        ):
-            self.logger.info("Launching DuckDB UI extension...")
-            self._launch_duckdb_ui()
+        # DuckDB UI is already set up during initialization
 
         # Mount FastAPI app for API routes
         app.mount("/api", self.api)
