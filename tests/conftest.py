@@ -1,20 +1,22 @@
 """Pytest configuration with multi-schema fixtures for FastVimes testing."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from fastvimes.database_service import DatabaseService
 
 # Multi-schema test configurations
 SCHEMA_CONFIGS = {
-    'default_sample': {
-        'description': 'Default sample schema with users, products, orders',
-        'create_sample_data': True,
-        'expected_tables': ['users', 'products', 'orders']
+    "default_sample": {
+        "description": "Default sample schema with users, products, orders",
+        "create_sample_data": True,
+        "expected_tables": ["users", "products", "orders"],
     },
-    'nyc_taxi': {
-        'description': 'NYC Taxi data with different column names and structure',
-        'create_sample_data': False,
-        'setup_queries': [
+    "nyc_taxi": {
+        "description": "NYC Taxi data with different column names and structure",
+        "create_sample_data": False,
+        "setup_queries": [
             # Create a table from NYC taxi data with different schema
             """
             CREATE TABLE trips AS 
@@ -39,14 +41,14 @@ SCHEMA_CONFIGS = {
                 SUM(tip_amount) as total_tips
             FROM trips
             GROUP BY DATE(pickup_datetime)
-            """
+            """,
         ],
-        'expected_tables': ['trips', 'trip_summary']
+        "expected_tables": ["trips", "trip_summary"],
     },
-    'financial_data': {
-        'description': 'Financial data with different naming conventions',
-        'create_sample_data': False,
-        'setup_queries': [
+    "financial_data": {
+        "description": "Financial data with different naming conventions",
+        "create_sample_data": False,
+        "setup_queries": [
             # Create financial tables with different naming patterns
             """
             CREATE TABLE financial_instruments (
@@ -84,14 +86,14 @@ SCHEMA_CONFIGS = {
             ('GOOGL', 2745.00, 2750.80, 2760.50, 2740.20, '2024-01-15', 25000000),
             ('MSFT', 348.90, 350.40, 352.10, 347.50, '2024-01-15', 30000000),
             ('TSLA', 248.20, 250.60, 255.30, 246.80, '2024-01-15', 45000000)
-            """
+            """,
         ],
-        'expected_tables': ['financial_instruments', 'trading_sessions']
+        "expected_tables": ["financial_instruments", "trading_sessions"],
     },
-    'blog_platform': {
-        'description': 'Blog platform schema with different relationships',
-        'create_sample_data': False,
-        'setup_queries': [
+    "blog_platform": {
+        "description": "Blog platform schema with different relationships",
+        "create_sample_data": False,
+        "setup_queries": [
             """
             CREATE TABLE authors (
                 author_id INTEGER PRIMARY KEY,
@@ -145,10 +147,10 @@ SCHEMA_CONFIGS = {
             (2, 1, 'DataAnalyst', 'Thanks for sharing this.', '2024-01-11 09:15:00', TRUE),
             (3, 2, 'FoodLover', 'Cannot wait to try these recipes!', '2024-01-12 18:00:00', TRUE),
             (4, 2, 'ChefMike', 'Great tips on pasta cooking.', '2024-01-13 11:45:00', FALSE)
-            """
+            """,
         ],
-        'expected_tables': ['authors', 'blog_posts', 'post_comments']
-    }
+        "expected_tables": ["authors", "blog_posts", "post_comments"],
+    },
 }
 
 
@@ -157,27 +159,31 @@ def multi_schema_db(request):
     """Create test database with different schema patterns to validate autogeneration."""
     schema_name = request.param
     config = SCHEMA_CONFIGS[schema_name]
-    
+
     # Create in-memory database
-    service = DatabaseService(Path(":memory:"), create_sample_data=config['create_sample_data'])
-    
+    service = DatabaseService(
+        Path(":memory:"), create_sample_data=config["create_sample_data"]
+    )
+
     # Run setup queries if provided
-    if 'setup_queries' in config:
-        for query in config['setup_queries']:
+    if "setup_queries" in config:
+        for query in config["setup_queries"]:
             try:
                 service.connection.execute(query)
             except Exception as e:
                 # Skip if external data source is unavailable (e.g., in CI)
-                if 'nyc_taxi' in schema_name and 'HTTP' in str(e):
-                    pytest.skip(f"External data source unavailable for {schema_name}: {e}")
+                if "nyc_taxi" in schema_name and "HTTP" in str(e):
+                    pytest.skip(
+                        f"External data source unavailable for {schema_name}: {e}"
+                    )
                 else:
                     raise
-    
+
     # Store expected tables for validation
-    service._test_expected_tables = config['expected_tables']
+    service._test_expected_tables = config["expected_tables"]
     service._test_schema_name = schema_name
-    service._test_description = config['description']
-    
+    service._test_description = config["description"]
+
     yield service
     service.close()
 

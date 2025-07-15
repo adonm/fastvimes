@@ -1,7 +1,9 @@
 """Test RQL integration with pyrql."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
 from fastvimes.database_service import DatabaseService
 
 
@@ -24,9 +26,14 @@ def test_rql_filtering_basic(db_service):
 def test_rql_filtering_complex(db_service):
     """Test complex RQL filtering."""
     # Test multiple conditions
-    result = db_service.get_table_data("users", rql_query="eq(active,true)&eq(department,Engineering)")
+    result = db_service.get_table_data(
+        "users", rql_query="eq(active,true)&eq(department,Engineering)"
+    )
     assert len(result["data"]) > 0
-    assert all(user["active"] and user["department"] == "Engineering" for user in result["data"])
+    assert all(
+        user["active"] and user["department"] == "Engineering"
+        for user in result["data"]
+    )
 
 
 def test_rql_sorting(db_service):
@@ -56,7 +63,9 @@ def test_rql_limit(db_service):
 def test_rql_error_handling(db_service):
     """Test RQL error handling for invalid queries."""
     # Should not crash on invalid RQL
-    result = db_service.get_table_data("users", rql_query="invalid_operator(field,value)")
+    result = db_service.get_table_data(
+        "users", rql_query="invalid_operator(field,value)"
+    )
     assert "data" in result
     # Should fall back to returning all data
     assert len(result["data"]) > 0
@@ -73,5 +82,7 @@ def test_no_rql_query(db_service):
 def test_rql_with_pagination(db_service):
     """Test RQL with pagination parameters."""
     # Test RQL filtering with pagination
-    result = db_service.get_table_data("users", rql_query="eq(active,true)", limit=2, offset=1)
+    result = db_service.get_table_data(
+        "users", rql_query="eq(active,true)", limit=2, offset=1
+    )
     assert len(result["data"]) <= 2

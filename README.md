@@ -15,11 +15,13 @@ uv run fastvimes serve --db my_data.db
 ```
 
 **That's it!** Opens reactive web interface at `http://localhost:8000` with:
-- 📊 Interactive table browser and data explorer
-- 📝 Auto-generated forms for CRUD operations  
-- 🔍 Advanced filtering and search
-- 🌐 REST API with RQL query language
-- 📖 Embedded API documentation
+- 📊 **Sidebar navigation** with consistent layout across all pages
+- 📊 **Interactive table browser** and data explorer
+- 📝 **Auto-generated forms** for CRUD operations  
+- 🔍 **Advanced filtering and search** with RQL query language
+- 🌐 **REST API** with comprehensive OpenAPI documentation
+- 📖 **Embedded admin tools** (API docs, SQL console, server logs)
+- 🎨 **Theme toggle** with Gruvbox color scheme
 
 ## 🎯 Core Concept
 

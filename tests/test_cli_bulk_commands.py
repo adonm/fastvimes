@@ -5,16 +5,15 @@ Tests the CLI interface for bulk operations using subprocess calls.
 Marked as slow since they use subprocess execution.
 """
 
+import csv
 import json
-import pytest
 import subprocess
 import sys
 import tempfile
-import os
 from pathlib import Path
-from typing import Dict, Any, List
-import csv
-import io
+from typing import Any
+
+import pytest
 
 from fastvimes.database_service import DatabaseService
 
@@ -24,19 +23,19 @@ from fastvimes.database_service import DatabaseService
 class TestCLIBulkCommands:
     """Test CLI bulk commands through subprocess execution."""
 
-    def run_cli_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
+    def run_cli_command(self, cmd: list[str]) -> subprocess.CompletedProcess:
         """Helper to run CLI commands and return result."""
         full_cmd = [sys.executable, "-m", "fastvimes.cli"] + cmd
         return subprocess.run(full_cmd, capture_output=True, text=True, timeout=30)
 
-    def create_test_json_file(self, data: List[Dict[str, Any]], temp_dir: Path) -> Path:
+    def create_test_json_file(self, data: list[dict[str, Any]], temp_dir: Path) -> Path:
         """Create a temporary JSON file with test data."""
         json_file = temp_dir / "test_data.json"
         with open(json_file, "w") as f:
             json.dump(data, f)
         return json_file
 
-    def create_test_csv_file(self, data: List[Dict[str, Any]], temp_dir: Path) -> Path:
+    def create_test_csv_file(self, data: list[dict[str, Any]], temp_dir: Path) -> Path:
         """Create a temporary CSV file with test data."""
         csv_file = temp_dir / "test_data.csv"
         if data:
@@ -48,7 +47,7 @@ class TestCLIBulkCommands:
         return csv_file
 
     def create_test_parquet_file(
-        self, data: List[Dict[str, Any]], temp_dir: Path
+        self, data: list[dict[str, Any]], temp_dir: Path
     ) -> Path:
         """Create a temporary Parquet file with test data."""
         parquet_file = temp_dir / "test_data.parquet"
@@ -584,12 +583,12 @@ class TestCLIBulkCommands:
 class TestCLIBulkCommandsMultiSchema:
     """Test CLI bulk commands with different database schemas."""
 
-    def run_cli_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
+    def run_cli_command(self, cmd: list[str]) -> subprocess.CompletedProcess:
         """Helper to run CLI commands and return result."""
         full_cmd = [sys.executable, "-m", "fastvimes.cli"] + cmd
         return subprocess.run(full_cmd, capture_output=True, text=True, timeout=30)
 
-    def create_test_json_file(self, data: List[Dict[str, Any]], temp_dir: Path) -> Path:
+    def create_test_json_file(self, data: list[dict[str, Any]], temp_dir: Path) -> Path:
         """Create a temporary JSON file with test data."""
         json_file = temp_dir / "test_data.json"
         with open(json_file, "w") as f:

@@ -686,71 +686,102 @@ class FastVimes:
     def _setup_ui(self):
         """Setup NiceGUI interface with auto-generated components."""
 
-        # Main page with table browser
         @ui.page("/")
         def index():
-            self._render_main_interface()
+            self._render_base_layout(self._main_content, "Database Tables")
 
-        # Table detail pages
         @ui.page("/table/{table_name}")
         def table_detail(table_name: str):
-            self._render_table_detail(table_name)
+            self._render_base_layout(
+                lambda: self._table_content(table_name), f"Table: {table_name}"
+            )
 
-        # Embedded UIs
         @ui.page("/admin/duckdb-ui")
         def duckdb_ui():
-            self._render_admin_page("DuckDB UI", "duckdb-ui")
+            self._render_base_layout(self._duckdb_ui_content, "DuckDB UI")
 
         @ui.page("/admin/api-docs")
         def api_docs():
-            self._render_admin_page("API Documentation", "api-docs")
+            self._render_base_layout(self._api_docs_content, "API Documentation")
 
         @ui.page("/admin/logs")
         def logs():
-            self._render_admin_page("Server Logs", "logs")
+            self._render_base_layout(self._render_logs_content, "Server Logs")
 
-    def _render_admin_page(self, title: str, page_type: str):
-        """Render admin page with navigation."""
-        with ui.header().classes("items-center px-4"):
-            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props(
-                "flat"
-            )
-            ui.label(title).classes("text-h5 font-bold ml-2")
-            ui.space()
-            self._render_admin_nav()
+    def _render_base_layout(self, content_fn, title: str = "FastVimes"):
+        """Render base layout with sidebar navigation."""
+        with ui.splitter(value=15).classes("w-full h-screen") as splitter:
+            with splitter.before:
+                # Sidebar
+                with ui.column().classes("w-full h-full p-4 bg-gray-800"):
+                    # Logo/Title
+                    ui.label("FastVimes").classes("text-h6 font-bold text-white mb-4")
 
-        with ui.column().classes("w-full h-full"):
-            if page_type == "duckdb-ui":
-                ui.html(
-                    f'<iframe src="http://localhost:{self.settings.duckdb_ui_port}" width="100%" height="600" style="border: none;"></iframe>'
-                )
-            elif page_type == "api-docs":
-                ui.html(
-                    '<iframe src="/docs" class="w-full h-full" style="border: none;"></iframe>'
-                )
-            elif page_type == "logs":
-                self._render_logs_content()
+                    # Navigation menu
+                    with ui.column().classes("w-full gap-2"):
+                        ui.button(
+                            "Database Tables",
+                            icon="table_view",
+                            on_click=lambda: ui.navigate.to("/"),
+                        ).props("flat align=left").classes(
+                            "w-full text-white justify-start"
+                        )
+
+                        ui.separator().classes("my-2")
+
+                        ui.label("Admin").classes("text-sm text-gray-400 mb-2")
+
+                        ui.button(
+                            "API Docs",
+                            icon="api",
+                            on_click=lambda: ui.navigate.to("/admin/api-docs"),
+                        ).props("flat align=left").classes(
+                            "w-full text-white justify-start"
+                        )
+
+                        ui.button(
+                            "SQL Console",
+                            icon="code",
+                            on_click=lambda: ui.navigate.to("/admin/duckdb-ui"),
+                        ).props("flat align=left").classes(
+                            "w-full text-white justify-start"
+                        )
+
+                        ui.button(
+                            "Logs",
+                            icon="article",
+                            on_click=lambda: ui.navigate.to("/admin/logs"),
+                        ).props("flat align=left").classes(
+                            "w-full text-white justify-start"
+                        )
+
+                    ui.space()
+
+                    # Theme toggle at bottom of sidebar
+                    ui.button(icon="brightness_6", on_click=self._toggle_theme).props(
+                        "flat round"
+                    ).classes("text-white").tooltip("Toggle theme")
+
+            with splitter.after:
+                # Main content area
+                with ui.column().classes("w-full h-full"):
+                    # Content header
+                    with ui.row().classes(
+                        "w-full items-center justify-between p-4 border-b"
+                    ):
+                        ui.label(title).classes("text-h5 font-bold")
+                        ui.space()
+
+                    # Content area - no extra column wrapper
+                    content_fn()
 
     def _render_admin_nav(self):
-        """Render admin navigation buttons."""
-        with ui.row().classes("items-center gap-2"):
-            ui.button(
-                "API Docs",
-                icon="api",
-                on_click=lambda: ui.navigate.to("/admin/api-docs"),
-            ).props("flat")
-            ui.button(
-                "SQL Console",
-                icon="code",
-                on_click=lambda: ui.navigate.to("/admin/duckdb-ui"),
-            ).props("flat")
-            ui.button(
-                "Logs", icon="article", on_click=lambda: ui.navigate.to("/admin/logs")
-            ).props("flat")
+        """Deprecated: Navigation is now in sidebar."""
+        pass
 
     def _render_logs_content(self):
         """Render logs page content."""
-        with ui.column().classes("w-full p-4"):
+        with ui.column().classes("w-full"):
             with ui.row().classes("w-full items-center justify-between mb-4"):
                 ui.label("Server Logs").classes("text-h6")
                 with ui.row().classes("items-center gap-2"):
@@ -843,177 +874,78 @@ class FastVimes:
 
     def _setup_theme(self):
         """Setup Gruvbox color theme using NiceGUI's built-in theming."""
-        # Use NiceGUI's built-in dark mode functionality
-        dark_mode = ui.dark_mode()
+        self.dark_mode = ui.dark_mode()
 
-        # Bind to instance variable for theme state
-        self.dark_mode = dark_mode
-
-        # Define Gruvbox color palette (NiceGUI doesn't have a colors module, but we can use the color system)
-
-        # Set up custom Gruvbox colors
-        self.gruvbox_colors = {
+        # Simplified Gruvbox colors
+        colors = {
             "dark": {
                 "bg": "#282828",
-                "bg_soft": "#32302f",
                 "bg_hard": "#1d2021",
+                "bg_soft": "#32302f",
                 "fg": "#ebdbb2",
-                "red": "#cc241d",
-                "green": "#98971a",
-                "yellow": "#d79921",
-                "blue": "#458588",
-                "purple": "#b16286",
-                "aqua": "#689d6a",
-                "orange": "#d65d0e",
                 "gray": "#a89984",
+                "blue": "#458588",
+                "yellow": "#d79921",
+                "red": "#cc241d",
+                "purple": "#b16286",
+                "green": "#98971a",
             },
             "light": {
                 "bg": "#fbf1c7",
-                "bg_soft": "#f2e5bc",
                 "bg_hard": "#f9f5d7",
+                "bg_soft": "#f2e5bc",
                 "fg": "#3c3836",
-                "red": "#cc241d",
-                "green": "#98971a",
-                "yellow": "#d79921",
-                "blue": "#458588",
-                "purple": "#b16286",
-                "aqua": "#689d6a",
-                "orange": "#d65d0e",
                 "gray": "#7c6f64",
+                "blue": "#458588",
+                "yellow": "#d79921",
+                "red": "#cc241d",
+                "purple": "#b16286",
+                "green": "#98971a",
             },
         }
 
-        # Add Gruvbox theme CSS using NiceGUI's CSS system
         ui.add_css(f"""
-        /* Gruvbox theme for NiceGUI */
-        body {{
-            background-color: {self.gruvbox_colors["dark"]["bg"]} !important;
-            color: {self.gruvbox_colors["dark"]["fg"]} !important;
-            transition: all 0.3s ease;
-        }}
-        
-        /* Light theme */
-        body.body--light {{
-            background-color: {self.gruvbox_colors["light"]["bg"]} !important;
-            color: {self.gruvbox_colors["light"]["fg"]} !important;
-        }}
-        
-        /* Header styling */
-        .q-header {{
-            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
-            border-bottom: 1px solid {self.gruvbox_colors["dark"]["gray"]} !important;
-        }}
-        
-        body.body--light .q-header {{
-            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
-            border-bottom: 1px solid {self.gruvbox_colors["light"]["gray"]} !important;
-        }}
-        
-        /* Button styling */
-        .q-btn {{
-            color: {self.gruvbox_colors["dark"]["fg"]} !important;
-        }}
-        
-        body.body--light .q-btn {{
-            color: {self.gruvbox_colors["light"]["fg"]} !important;
-        }}
-        
-        .q-btn:hover {{
-            background-color: {self.gruvbox_colors["dark"]["bg_hard"]} !important;
-        }}
-        
-        body.body--light .q-btn:hover {{
-            background-color: {self.gruvbox_colors["light"]["bg_hard"]} !important;
-        }}
-        
-        /* Card styling */
-        .q-card {{
-            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
-            border: 1px solid {self.gruvbox_colors["dark"]["gray"]} !important;
-        }}
-        
-        body.body--light .q-card {{
-            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
-            border: 1px solid {self.gruvbox_colors["light"]["gray"]} !important;
-        }}
-        
-        /* Input styling */
-        .q-field__control {{
-            background-color: {self.gruvbox_colors["dark"]["bg_hard"]} !important;
-            color: {self.gruvbox_colors["dark"]["fg"]} !important;
-        }}
-        
-        body.body--light .q-field__control {{
-            background-color: {self.gruvbox_colors["light"]["bg_hard"]} !important;
-            color: {self.gruvbox_colors["light"]["fg"]} !important;
-        }}
-        
-        /* Table styling */
-        .q-table {{
-            background-color: {self.gruvbox_colors["dark"]["bg_soft"]} !important;
-            color: {self.gruvbox_colors["dark"]["fg"]} !important;
-        }}
-        
-        body.body--light .q-table {{
-            background-color: {self.gruvbox_colors["light"]["bg_soft"]} !important;
-            color: {self.gruvbox_colors["light"]["fg"]} !important;
-        }}
-        
-        /* Log colors (consistent across themes) */
-        .log-info {{ color: {self.gruvbox_colors["dark"]["blue"]} !important; }}
-        .log-warning {{ color: {self.gruvbox_colors["dark"]["yellow"]} !important; }}
-        .log-error {{ color: {self.gruvbox_colors["dark"]["red"]} !important; }}
-        .log-debug {{ color: {self.gruvbox_colors["dark"]["gray"]} !important; }}
-        .log-python {{ color: {self.gruvbox_colors["dark"]["purple"]} !important; }}
-        .log-duckdb {{ color: {self.gruvbox_colors["dark"]["green"]} !important; }}
-        
-        .log-entry {{
-            border-color: {self.gruvbox_colors["dark"]["gray"]} !important;
-        }}
-        
-        body.body--light .log-entry {{
-            border-color: {self.gruvbox_colors["light"]["gray"]} !important;
-        }}
+        body {{ background-color: {colors["dark"]["bg"]}; color: {colors["dark"]["fg"]}; transition: all 0.3s ease; }}
+        body.body--light {{ background-color: {colors["light"]["bg"]}; color: {colors["light"]["fg"]}; }}
+        .bg-gray-800 {{ background-color: {colors["dark"]["bg_hard"]}; }}
+        body.body--light .bg-gray-800 {{ background-color: {colors["light"]["bg_hard"]}; }}
+        .q-btn {{ color: {colors["dark"]["fg"]}; }}
+        body.body--light .q-btn {{ color: {colors["light"]["fg"]}; }}
+        .q-btn:hover {{ background-color: {colors["dark"]["bg_hard"]}; }}
+        body.body--light .q-btn:hover {{ background-color: {colors["light"]["bg_hard"]}; }}
+        .q-card {{ background-color: {colors["dark"]["bg_soft"]}; border: 1px solid {colors["dark"]["gray"]}; }}
+        body.body--light .q-card {{ background-color: {colors["light"]["bg_soft"]}; border: 1px solid {colors["light"]["gray"]}; }}
+        .q-field__control {{ background-color: {colors["dark"]["bg_hard"]}; color: {colors["dark"]["fg"]}; }}
+        body.body--light .q-field__control {{ background-color: {colors["light"]["bg_hard"]}; color: {colors["light"]["fg"]}; }}
+        .q-table {{ background-color: {colors["dark"]["bg_soft"]}; color: {colors["dark"]["fg"]}; }}
+        body.body--light .q-table {{ background-color: {colors["light"]["bg_soft"]}; color: {colors["light"]["fg"]}; }}
+        .log-info {{ color: {colors["dark"]["blue"]}; }}
+        .log-warning {{ color: {colors["dark"]["yellow"]}; }}
+        .log-error {{ color: {colors["dark"]["red"]}; }}
+        .log-debug {{ color: {colors["dark"]["gray"]}; }}
+        .log-python {{ color: {colors["dark"]["purple"]}; }}
+        .log-duckdb {{ color: {colors["dark"]["green"]}; }}
+        .log-entry {{ border-color: {colors["dark"]["gray"]}; }}
+        body.body--light .log-entry {{ border-color: {colors["light"]["gray"]}; }}
         """)
 
     def _toggle_theme(self):
         """Toggle between light and dark theme using NiceGUI's built-in dark mode."""
         self.dark_mode.toggle()
 
-    def _render_main_interface(self):
-        """Render the main Datasette-style interface."""
-        with ui.header().classes("items-center px-4"):
-            ui.label("FastVimes").classes("text-h5 font-bold")
-            ui.space()
-            # Add theme toggle button
-            ui.button(icon="brightness_6", on_click=self._toggle_theme).props(
-                "flat round"
-            ).tooltip("Toggle theme")
-            self._render_admin_nav()
-
-        with ui.column().classes("w-full max-w-4xl mx-auto p-4"):
-            # Header with search
+    def _main_content(self):
+        """Render main page content."""
+        with ui.column().classes("w-full max-w-4xl mx-auto"):
             with ui.row().classes("w-full items-center justify-between mb-6"):
                 ui.label("Database Tables").classes("text-h4")
                 ui.input(placeholder="Search tables...").classes("w-64").props(
                     "outlined dense"
                 )
+            self.table_browser_component().render()
 
-            # Table browser component (can be overridden)
-            table_browser = self.table_browser_component()
-            table_browser.render()
-
-    def _render_table_detail(self, table_name: str):
-        """Render detailed view for a specific table."""
-        with ui.header().classes("items-center px-4"):
-            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props(
-                "flat"
-            )
-            ui.label(f"{table_name}").classes("text-h5 font-bold ml-2")
-            ui.space()
-            self._render_admin_nav()
-
-        with ui.column().classes("w-full max-w-5xl mx-auto p-4"):
+    def _table_content(self, table_name: str):
+        """Render table detail content."""
+        with ui.column().classes("w-full max-w-5xl mx-auto"):
             with ui.tabs().classes("w-full") as tabs:
                 data_tab = ui.tab("Data")
                 query_tab = ui.tab("Query")
@@ -1021,19 +953,23 @@ class FastVimes:
 
             with ui.tab_panels(tabs, value=data_tab).classes("w-full"):
                 with ui.tab_panel(data_tab):
-                    # Data explorer component (can be overridden)
-                    data_explorer = self.table_component(table_name)
-                    data_explorer.render()
-
+                    self.table_component(table_name).render()
                 with ui.tab_panel(query_tab):
-                    # Query builder component (can be overridden)
-                    query_builder = self.query_component(table_name)
-                    query_builder.render()
-
+                    self.query_component(table_name).render()
                 with ui.tab_panel(add_tab):
-                    # Form generator component (can be overridden)
-                    form_generator = self.form_component(table_name)
-                    form_generator.render()
+                    self.form_component(table_name).render()
+
+    def _duckdb_ui_content(self):
+        """Render DuckDB UI content."""
+        ui.html(
+            f'<iframe src="http://localhost:{self.settings.duckdb_ui_port}" style="width: 100%; height: 80vh; border: none;"></iframe>'
+        ).classes("w-full h-full")
+
+    def _api_docs_content(self):
+        """Render API documentation content."""
+        ui.html(
+            '<iframe src="/api/docs" style="width: 100%; height: 80vh; border: none;"></iframe>'
+        ).classes("w-full h-full")
 
     def serve(self, host: str = "127.0.0.1", port: int = 8000):
         """Start the FastVimes server."""

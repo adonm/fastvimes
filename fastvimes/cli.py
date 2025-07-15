@@ -1,9 +1,9 @@
 """FastVimes CLI using Typer with namespaced commands."""
 
-import typer
 import json
-from typing import Optional, Dict, Any
 from pathlib import Path
+
+import typer
 
 from .app import FastVimes
 from .config import FastVimesSettings
@@ -11,7 +11,7 @@ from .config import FastVimesSettings
 # Main app
 app = typer.Typer(
     name="fastvimes",
-    help="FastVimes: Auto-Generated Datasette-Style Apps with NiceGUI + DuckDB"
+    help="FastVimes: Auto-Generated Datasette-Style Apps with NiceGUI + DuckDB",
 )
 
 # Subcommands
@@ -22,35 +22,34 @@ app.add_typer(meta_app, name="meta")
 app.add_typer(data_app, name="data")
 
 
-def _serve_main(db: Optional[str], host: str, port: int, debug: bool):
+def _serve_main(db: str | None, host: str, port: int, debug: bool):
     """Main function for serve command - needed for NiceGUI proper initialization."""
-    from nicegui import ui
-    
+
     settings = FastVimesSettings(host=host, port=port, debug=debug)
-    
+
     # Create FastVimes app
     fastvimes = FastVimes(db_path=db, settings=settings)
-    
-    print(f"Starting FastVimes server...")
+
+    print("Starting FastVimes server...")
     if db:
         print(f"Database: {db}")
     else:
         print("Database: In-memory with sample data")
     print(f"Server: http://{host}:{port}")
-    
+
     # Start the server
     fastvimes.serve(host=host, port=port)
 
 
 @app.command()
 def serve(
-    db: Optional[str] = typer.Option(
-        None, 
-        help="Path to DuckDB database. If not provided, uses in-memory database with sample data."
+    db: str | None = typer.Option(
+        None,
+        help="Path to DuckDB database. If not provided, uses in-memory database with sample data.",
     ),
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8000, help="Port to bind to"),
-    debug: bool = typer.Option(False, help="Enable debug mode")
+    debug: bool = typer.Option(False, help="Enable debug mode"),
 ):
     """Start the FastVimes server with NiceGUI interface."""
     _serve_main(db, host, port, debug)
@@ -59,22 +58,23 @@ def serve(
 @app.command()
 def init(
     db: str = typer.Argument(..., help="Path to DuckDB database to create"),
-    force: bool = typer.Option(False, help="Overwrite existing database")
+    force: bool = typer.Option(False, help="Overwrite existing database"),
 ):
     """Initialize a new DuckDB database with sample data."""
     db_path = Path(db)
-    
+
     if db_path.exists() and not force:
         typer.echo(f"Database {db} already exists. Use --force to overwrite.")
         raise typer.Exit(1)
-        
+
     # Create new database with sample data
     from .database_service import DatabaseService
+
     db_service = DatabaseService(db_path, create_sample_data=True)
-    
+
     typer.echo(f"Initialized database: {db}")
     typer.echo("Sample tables created:")
-    
+
     tables = db_service.list_tables()
     for table in tables:
         typer.echo(f"  {table['name']}")
@@ -82,44 +82,56 @@ def init(
 
 @app.command()
 def httpx(
-    request: str = typer.Argument(..., help="HTTP request in format 'METHOD /path' or just '/path' for GET"),
-    data: Optional[str] = typer.Option(None, help="JSON data for POST/PUT requests"),
+    request: str = typer.Argument(
+        ..., help="HTTP request in format 'METHOD /path' or just '/path' for GET"
+    ),
+    data: str | None = typer.Option(None, help="JSON data for POST/PUT requests"),
     port: int = typer.Option(8000, help="Port to connect to"),
     host: str = typer.Option("127.0.0.1", help="Host to connect to"),
-    verbose: bool = typer.Option(False, help="Show detailed output")
+    verbose: bool = typer.Option(False, help="Show detailed output"),
 ):
     """Test HTTP API endpoints with automatic server lifecycle."""
+    import json
     import subprocess
     import sys
     import time
-    import json
-    import urllib.request
     import urllib.parse
+    import urllib.request
     from urllib.error import HTTPError, URLError
-    
+
     # Parse request
-    parts = request.strip().split(' ', 1)
+    parts = request.strip().split(" ", 1)
     if len(parts) == 1:
         method = "GET"
         path = parts[0]
     else:
         method, path = parts
-    
+
     method = method.upper()
-    
+
     # Ensure path starts with /
-    if not path.startswith('/'):
-        path = '/' + path
-        
+    if not path.startswith("/"):
+        path = "/" + path
+
     # Start server in background
     server_process = None
     try:
         # Start FastVimes server
-        server_process = subprocess.Popen([
-            sys.executable, '-m', 'fastvimes.cli', 'serve', 
-            '--host', host, '--port', str(port)
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
+        server_process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "fastvimes.cli",
+                "serve",
+                "--host",
+                host,
+                "--port",
+                str(port),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
         # Wait for server to start
         base_url = f"http://{host}:{port}"
         for i in range(30):  # Wait up to 30 seconds
@@ -131,43 +143,45 @@ def httpx(
         else:
             typer.echo("Failed to start server", err=True)
             return
-            
+
         # Make the request
         url = f"{base_url}{path}"
-        
+
         if verbose:
             typer.echo(f"Making {method} request to {url}")
-        
+
         # Prepare request
-        headers = {'Content-Type': 'application/json'} if data else {}
-        req_data = data.encode('utf-8') if data else None
-        
-        request_obj = urllib.request.Request(url, data=req_data, headers=headers, method=method)
-        
+        headers = {"Content-Type": "application/json"} if data else {}
+        req_data = data.encode("utf-8") if data else None
+
+        request_obj = urllib.request.Request(
+            url, data=req_data, headers=headers, method=method
+        )
+
         try:
             with urllib.request.urlopen(request_obj) as response:
-                response_data = response.read().decode('utf-8')
-                
+                response_data = response.read().decode("utf-8")
+
                 if verbose:
                     typer.echo(f"Status: {response.status}")
                     typer.echo(f"Headers: {dict(response.headers)}")
-                
+
                 # Pretty print JSON response
                 try:
                     json_data = json.loads(response_data)
                     typer.echo(json.dumps(json_data, indent=2))
                 except json.JSONDecodeError:
                     typer.echo(response_data)
-                    
+
         except HTTPError as e:
             typer.echo(f"HTTP Error {e.code}: {e.reason}", err=True)
-            error_data = e.read().decode('utf-8')
+            error_data = e.read().decode("utf-8")
             try:
                 json_error = json.loads(error_data)
                 typer.echo(json.dumps(json_error, indent=2), err=True)
             except json.JSONDecodeError:
                 typer.echo(error_data, err=True)
-                
+
     finally:
         # Clean up server
         if server_process:
@@ -179,21 +193,17 @@ def httpx(
 # META COMMANDS - Database introspection
 # =============================================================================
 
+
 @meta_app.command()
-def tables(
-    db: Optional[str] = typer.Option(
-        None,
-        help="Path to DuckDB database"
-    )
-):
+def tables(db: str | None = typer.Option(None, help="Path to DuckDB database")):
     """List all tables in the database."""
     fastvimes = FastVimes(db_path=db)
     tables = fastvimes.db_service.list_tables()
-    
+
     if not tables:
         typer.echo("No tables found.")
         return
-        
+
     typer.echo("Tables:")
     for table in tables:
         typer.echo(f"  {table['name']} ({table['type']})")
@@ -202,15 +212,12 @@ def tables(
 @meta_app.command()
 def schema(
     table: str = typer.Argument(..., help="Table name"),
-    db: Optional[str] = typer.Option(
-        None,
-        help="Path to DuckDB database"
-    )
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Show schema for a specific table."""
     fastvimes = FastVimes(db_path=db)
     schema = fastvimes.db_service.get_table_schema(table)
-    
+
     typer.echo(f"Schema for table '{table}':")
     for column in schema:
         nullable = "NULL" if column.get("nullable") else "NOT NULL"
@@ -222,34 +229,32 @@ def schema(
 # DATA COMMANDS - Table CRUD operations
 # =============================================================================
 
+
 @data_app.command()
 def get(
     table: str = typer.Argument(..., help="Table name"),
-    rql: Optional[str] = typer.Option(None, help="RQL query filter"),
-    limit: Optional[int] = typer.Option(100, help="Maximum number of records"),
-    offset: Optional[int] = typer.Option(0, help="Number of records to skip"),
+    rql: str | None = typer.Option(None, help="RQL query filter"),
+    limit: int | None = typer.Option(100, help="Maximum number of records"),
+    offset: int | None = typer.Option(0, help="Number of records to skip"),
     format: str = typer.Option("json", help="Output format: json, csv, parquet"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Get table data with RQL filtering and multi-format output."""
     fastvimes = FastVimes(db_path=db)
-    
+
     try:
         result = fastvimes.db_service.get_table_data(
-            table_name=table,
-            rql_query=rql,
-            limit=limit,
-            offset=offset,
-            format=format
+            table_name=table, rql_query=rql, limit=limit, offset=offset, format=format
         )
-        
+
         if format.lower() == "json":
             typer.echo(json.dumps(result, indent=2, default=str))
         else:
             # For CSV/Parquet, write to stdout as bytes
             import sys
+
             sys.stdout.buffer.write(result)
-            
+
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)
@@ -259,15 +264,21 @@ def get(
 def create(
     table: str = typer.Argument(..., help="Table name"),
     data: str = typer.Option(..., help="JSON data for the new record"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Create a new record in the specified table."""
     fastvimes = FastVimes(db_path=db)
-    
+
     try:
         record_data = json.loads(data)
         result = fastvimes.db_service.create_record(table, record_data)
-        typer.echo(json.dumps({"message": "Record created successfully", "record": result}, indent=2, default=str))
+        typer.echo(
+            json.dumps(
+                {"message": "Record created successfully", "record": result},
+                indent=2,
+                default=str,
+            )
+        )
     except json.JSONDecodeError:
         typer.echo("Error: Invalid JSON data", err=True)
         raise typer.Exit(1)
@@ -280,20 +291,24 @@ def create(
 def update(
     table: str = typer.Argument(..., help="Table name"),
     data: str = typer.Option(..., help="JSON data for updating records"),
-    rql: Optional[str] = typer.Option(None, help="RQL query to filter records"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    rql: str | None = typer.Option(None, help="RQL query to filter records"),
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Update records in the specified table."""
     fastvimes = FastVimes(db_path=db)
-    
+
     try:
         update_data = json.loads(data)
         count = fastvimes.db_service.update_records(
-            table_name=table,
-            data=update_data,
-            rql_query=rql
+            table_name=table, data=update_data, rql_query=rql
         )
-        typer.echo(json.dumps({"message": f"Updated {count} records", "count": count}, indent=2, default=str))
+        typer.echo(
+            json.dumps(
+                {"message": f"Updated {count} records", "count": count},
+                indent=2,
+                default=str,
+            )
+        )
     except json.JSONDecodeError:
         typer.echo("Error: Invalid JSON data", err=True)
         raise typer.Exit(1)
@@ -306,17 +321,20 @@ def update(
 def delete(
     table: str = typer.Argument(..., help="Table name"),
     rql: str = typer.Option(..., help="RQL query to filter records for deletion"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Delete records from the specified table."""
     fastvimes = FastVimes(db_path=db)
-    
+
     try:
-        count = fastvimes.db_service.delete_records(
-            table_name=table,
-            rql_query=rql
+        count = fastvimes.db_service.delete_records(table_name=table, rql_query=rql)
+        typer.echo(
+            json.dumps(
+                {"message": f"Deleted {count} records", "count": count},
+                indent=2,
+                default=str,
+            )
         )
-        typer.echo(json.dumps({"message": f"Deleted {count} records", "count": count}, indent=2, default=str))
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)
@@ -326,18 +344,19 @@ def delete(
 # QUERY COMMAND - Raw SQL execution
 # =============================================================================
 
+
 @app.command()
 def query(
     sql: str = typer.Argument(..., help="SQL query to execute"),
     format: str = typer.Option("json", help="Output format: json, csv, parquet"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Execute a raw SQL query and return results."""
     fastvimes = FastVimes(db_path=db)
-    
+
     try:
         result = fastvimes.db_service.execute_query(sql)
-        
+
         if format.lower() == "json":
             typer.echo(json.dumps(result, indent=2, default=str))
         elif format.lower() == "csv":
@@ -345,6 +364,7 @@ def query(
             if result:
                 import csv
                 import io
+
                 output = io.StringIO()
                 writer = csv.DictWriter(output, fieldnames=result[0].keys())
                 writer.writeheader()
@@ -359,13 +379,17 @@ def query(
                 data = result
                 parquet_bytes = fastvimes.db_service._export_to_parquet(columns, data)
                 import sys
+
                 sys.stdout.buffer.write(parquet_bytes)
             else:
                 typer.echo("")
         else:
-            typer.echo(f"Error: Unsupported format '{format}'. Use: json, csv, parquet", err=True)
+            typer.echo(
+                f"Error: Unsupported format '{format}'. Use: json, csv, parquet",
+                err=True,
+            )
             raise typer.Exit(1)
-            
+
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)
@@ -375,31 +399,38 @@ def query(
 # BULK OPERATIONS COMMANDS - File-based bulk operations
 # =============================================================================
 
+
 @data_app.command()
 def bulk_insert(
     table: str = typer.Argument(..., help="Table name"),
-    file: str = typer.Option(..., "--file", help="Path to data file (Parquet, CSV, or JSON)"),
-    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    file: str = typer.Option(
+        ..., "--file", help="Path to data file (Parquet, CSV, or JSON)"
+    ),
+    file_format: str = typer.Option(
+        "auto", help="File format: auto, parquet, csv, json"
+    ),
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Bulk insert records from file."""
     try:
         fastvimes = FastVimes(db_path=db)
-        
+
         # Verify file exists
         if not Path(file).exists():
             typer.echo(f"Error: File '{file}' not found", err=True)
             raise typer.Exit(1)
-        
+
         # Perform bulk insert
         records_inserted = fastvimes.db_service.bulk_insert_from_file(
             table, file, file_format
         )
-        
-        typer.echo(f"Successfully inserted {records_inserted} records into table '{table}'")
+
+        typer.echo(
+            f"Successfully inserted {records_inserted} records into table '{table}'"
+        )
         typer.echo(f"Source file: {file}")
         typer.echo(f"Format: {file_format}")
-        
+
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)
@@ -408,35 +439,41 @@ def bulk_insert(
 @data_app.command()
 def bulk_upsert(
     table: str = typer.Argument(..., help="Table name"),
-    file: str = typer.Option(..., "--file", help="Path to data file (Parquet, CSV, or JSON)"),
-    key_columns: str = typer.Option(..., "--key-columns", help="Comma-separated list of key columns for matching"),
-    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database")
+    file: str = typer.Option(
+        ..., "--file", help="Path to data file (Parquet, CSV, or JSON)"
+    ),
+    key_columns: str = typer.Option(
+        ..., "--key-columns", help="Comma-separated list of key columns for matching"
+    ),
+    file_format: str = typer.Option(
+        "auto", help="File format: auto, parquet, csv, json"
+    ),
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
     """Bulk upsert (insert or update) records from file."""
     try:
         fastvimes = FastVimes(db_path=db)
-        
+
         # Verify file exists
         if not Path(file).exists():
             typer.echo(f"Error: File '{file}' not found", err=True)
             raise typer.Exit(1)
-        
+
         # Parse key columns
-        key_columns_list = [col.strip() for col in key_columns.split(',')]
-        
+        key_columns_list = [col.strip() for col in key_columns.split(",")]
+
         # Perform bulk upsert
         result = fastvimes.db_service.bulk_upsert_from_file(
             table, file, key_columns_list, file_format
         )
-        
+
         typer.echo(f"Successfully processed records in table '{table}':")
         typer.echo(f"  Records inserted: {result['inserted']}")
         typer.echo(f"  Records updated: {result['updated']}")
         typer.echo(f"Source file: {file}")
         typer.echo(f"Key columns: {key_columns_list}")
         typer.echo(f"Format: {file_format}")
-        
+
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)
@@ -445,42 +482,52 @@ def bulk_upsert(
 @data_app.command()
 def bulk_delete(
     table: str = typer.Argument(..., help="Table name"),
-    file: str = typer.Option(..., "--file", help="Path to file containing keys to delete"),
-    key_columns: str = typer.Option(..., "--key-columns", help="Comma-separated list of key columns for matching"),
-    file_format: str = typer.Option("auto", help="File format: auto, parquet, csv, json"),
-    db: Optional[str] = typer.Option(None, help="Path to DuckDB database"),
-    confirm: bool = typer.Option(False, "--confirm", help="Skip confirmation prompt")
+    file: str = typer.Option(
+        ..., "--file", help="Path to file containing keys to delete"
+    ),
+    key_columns: str = typer.Option(
+        ..., "--key-columns", help="Comma-separated list of key columns for matching"
+    ),
+    file_format: str = typer.Option(
+        "auto", help="File format: auto, parquet, csv, json"
+    ),
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
+    confirm: bool = typer.Option(False, "--confirm", help="Skip confirmation prompt"),
 ):
     """Bulk delete records based on keys from file."""
     try:
         fastvimes = FastVimes(db_path=db)
-        
+
         # Verify file exists
         if not Path(file).exists():
             typer.echo(f"Error: File '{file}' not found", err=True)
             raise typer.Exit(1)
-        
+
         # Parse key columns
-        key_columns_list = [col.strip() for col in key_columns.split(',')]
-        
+        key_columns_list = [col.strip() for col in key_columns.split(",")]
+
         # Confirmation prompt
         if not confirm:
-            typer.echo(f"This will delete records from table '{table}' based on keys in '{file}'")
+            typer.echo(
+                f"This will delete records from table '{table}' based on keys in '{file}'"
+            )
             typer.echo(f"Key columns: {key_columns_list}")
             if not typer.confirm("Are you sure you want to proceed?"):
                 typer.echo("Operation cancelled")
                 raise typer.Exit(0)
-        
+
         # Perform bulk delete
         records_deleted = fastvimes.db_service.bulk_delete_from_file(
             table, file, key_columns_list, file_format
         )
-        
-        typer.echo(f"Successfully deleted {records_deleted} records from table '{table}'")
+
+        typer.echo(
+            f"Successfully deleted {records_deleted} records from table '{table}'"
+        )
         typer.echo(f"Source file: {file}")
         typer.echo(f"Key columns: {key_columns_list}")
         typer.echo(f"Format: {file_format}")
-        
+
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
         raise typer.Exit(1)

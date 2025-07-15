@@ -46,6 +46,19 @@ DuckDB/DuckLake → SQLGlot → PyRQL → DatabaseService → FastAPI/CLI/NiceGU
 
 ## Phase 3: Enhanced NiceGUI Components (In Progress)
 
+### **UI Layout Improvements - COMPLETED ✅**
+- ✅ **Consolidated sidebar layout**: Replaced top navbar with consistent left sidebar
+- ✅ **Single base layout**: All pages use `_render_base_layout()` method
+- ✅ **Simplified theme system**: Reduced CSS from 130+ lines to 20 lines
+- ✅ **Fixed API docs path**: Changed from `/docs` to `/api/docs`
+- ✅ **Improved iframe sizing**: Fixed DuckDB UI and API docs display
+- ✅ **Added layout tests**: Created `test_ui_layout.py` for sidebar functionality
+
+### **Known Issues - BACKLOG**
+- 🔄 **Table UI components**: QueryBuilder readonly input fixed, but other table UI components need review
+- 🔄 **Table detail page**: Layout and component rendering needs improvement
+- 🔄 **Form validation**: Table forms may need better error handling
+
 ### Auto-Generated Components Priority
 1. **Query Builder Component** - Visual RQL query construction interface
    - Drag-and-drop filter building
