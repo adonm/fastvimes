@@ -15,10 +15,39 @@ def build_api(db_service: DatabaseService, settings: FastVimesSettings) -> FastA
     """
     app = FastAPI(
         title="FastVimes API",
-        description="Auto-generated API from DuckDB schema",
+        description="""
+## FastVimes Auto-Generated Database API
+
+Automatically generated REST API for DuckDB databases with RQL query support.
+
+### Features
+- **Auto-generated endpoints** from database schema
+- **RQL query language** for filtering and sorting
+- **Multiple output formats** (JSON, CSV, Parquet)
+- **Bulk operations** with file upload support
+- **Health monitoring** for production deployments
+
+### RQL Query Examples
+- `?eq(id,123)` - Filter where id equals 123
+- `?lt(age,30)` - Filter where age less than 30
+- `?sort(+name,-created_at)` - Sort by name ASC, created_at DESC
+- `?limit(10,20)` - Skip 20 records, take 10 (pagination)
+- `?select(id,name,email)` - Only return specified fields
+
+### Bulk Operations
+Upload CSV, Parquet, or JSON files for efficient bulk insert/upsert/delete operations.
+        """,
         version="0.2.0",
         docs_url="/docs",  # Available at /api/docs when mounted
         redoc_url="/redoc",  # Available at /api/redoc when mounted
+        contact={
+            "name": "FastVimes",
+            "url": "https://github.com/adonm/fastvimes",
+        },
+        license_info={
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT",
+        },
     )
 
     # Store db_service for dependency injection
@@ -28,15 +57,69 @@ def build_api(db_service: DatabaseService, settings: FastVimesSettings) -> FastA
         """Dependency to get database service."""
         return app.state.db_service
 
+    # HEALTH endpoint
+    @app.get(
+        "/health",
+        summary="Health Check",
+        description="Health check endpoint for monitoring, load balancers, and service discovery.",
+        tags=["Health"],
+        response_description="Service health status with database connectivity information"
+    )
+    async def health_check(db: DatabaseService = Depends(get_db)) -> dict[str, Any]:
+        """Health check endpoint for monitoring and load balancers."""
+        try:
+            # Test database connectivity
+            tables = db.list_tables()
+            table_count = len(tables)
+            
+            # Test a simple query
+            result = db.execute_query("SELECT 1 as health_check")
+            db_connected = len(result) == 1 and result[0]["health_check"] == 1
+            
+            status = "healthy" if db_connected else "unhealthy"
+            
+            return {
+                "status": status,
+                "database": {
+                    "connected": db_connected,
+                    "table_count": table_count,
+                },
+                "version": "0.2.0",
+                "service": "FastVimes"
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "database": {
+                    "connected": False,
+                    "table_count": 0,
+                },
+                "version": "0.2.0",
+                "service": "FastVimes"
+            }
+
     # META routes
-    @app.get("/v1/meta/tables")
+    @app.get(
+        "/v1/meta/tables",
+        summary="List Tables",
+        description="List all tables and views in the database with metadata.",
+        tags=["Metadata"],
+        response_description="Array of table information including name and type"
+    )
     async def list_tables(
         db: DatabaseService = Depends(get_db),
     ) -> list[dict[str, Any]]:
         """List all tables and views."""
         return db.list_tables()
 
-    @app.get("/v1/meta/schema/{table_name}")
+    @app.get(
+        "/v1/meta/schema/{table_name}",
+        summary="Get Table Schema",
+        description="Get detailed schema information for a specific table including column names, types, and constraints.",
+        tags=["Metadata"],
+        response_description="Array of column definitions with name, type, nullable, and key information"
+    )
     async def get_table_schema(
         table_name: str, db: DatabaseService = Depends(get_db)
     ) -> list[dict[str, Any]]:
@@ -47,12 +130,25 @@ def build_api(db_service: DatabaseService, settings: FastVimesSettings) -> FastA
             raise HTTPException(status_code=404, detail=str(e)) from e
 
     # DATA routes
-    @app.get("/v1/data/{table_name}")
+    @app.get(
+        "/v1/data/{table_name}",
+        summary="Get Table Data",
+        description="""
+Get table data with optional RQL filtering, sorting, and pagination.
+
+**RQL Examples:**
+- `?eq(id,123)` - Filter where id equals 123
+- `?lt(age,30)&sort(+name)` - Age < 30, sorted by name
+- `?limit(10,20)&format=csv` - Skip 20, take 10, CSV format
+        """,
+        tags=["Data Operations"],
+        response_description="Table data in specified format (JSON, CSV, or Parquet)"
+    )
     async def get_table_data(
         table_name: str,
-        rql_query: str = Query(None, description="RQL query string"),
-        limit: int = Query(100, description="Maximum number of records"),
-        offset: int = Query(0, description="Number of records to skip"),
+        rql_query: str = Query(None, description="RQL query string for filtering and sorting"),
+        limit: int = Query(100, description="Maximum number of records to return"),
+        offset: int = Query(0, description="Number of records to skip for pagination"),
         format: str = Query("json", description="Output format: json, csv, parquet"),
         db: DatabaseService = Depends(get_db),
     ):

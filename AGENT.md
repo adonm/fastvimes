@@ -600,6 +600,7 @@ git clean -fd  # Remove untracked files
 - **No commented-out code** - if you need it later, check git history
 - **Clean working directory** - no old backup files or unused modules
 - **Descriptive commit messages** - explain what and why, not how
+- **Use mature tools** - DuckDB CLI instead of custom shells, NiceGUI built-ins instead of custom components
 
 **Testing and Quality Assurance:**
 ```bash
@@ -622,6 +623,10 @@ uv run mypy fastvimes/
 # Quick validation of core functionality (NEW NAMESPACED COMMANDS)
 uv run fastvimes meta tables
 uv run fastvimes data get users --eq "active,true"
+
+# Interactive SQL shell (uses mature DuckDB CLI)
+uv run fastvimes duckdb                    # In-memory sample data
+uv run fastvimes duckdb --db demo.db       # Connect to specific database
 ```
 
 **Local Development Server:**
@@ -881,11 +886,11 @@ def table_page(table_name: str):
 
 **FastVimes lean architecture is complete!** 🎉 See [ROADMAP.md](ROADMAP.md) for detailed next steps.
 
-**Immediate priorities:**
-1. **Navigation sidebar** - Table browser with search (Phase 2)
-2. **Auto-generated charts** - Use `ui.chart` for data visualization  
-3. **Error boundaries** - Graceful UI error handling
-4. **Form improvements** - Smart validation and bulk import
+**Phase 3 Complete: Developer Experience**
+1. **Native DuckDB CLI integration** - `fastvimes duckdb` command launches mature DuckDB shell
+2. **Health endpoint** - `/api/health` for production monitoring
+3. **Enhanced OpenAPI docs** - Rich documentation with RQL examples and proper tagging
+4. **Mature dependency usage** - Leverage existing tools instead of custom implementations
 
 **Implementation approach:**
 - **Use NiceGUI built-ins** - `ui.chart`, `ui.tree`, `ui.upload`

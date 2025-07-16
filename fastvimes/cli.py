@@ -397,6 +397,72 @@ def query(
         raise typer.Exit(1) from e
 
 
+@app.command()
+def duckdb(
+    db: str | None = typer.Option(None, help="Path to DuckDB database"),
+):
+    """Open DuckDB CLI connected to the FastVimes database.
+    
+    This launches the native DuckDB command-line interface with full SQL support,
+    advanced features, and rich formatting. Much more powerful than a custom shell.
+    
+    Examples:
+        fastvimes duckdb                    # Connect to in-memory sample data
+        fastvimes duckdb --db demo.db       # Connect to specific database
+    """
+    import subprocess
+    import sys
+    
+    # Determine database path
+    if db is None:
+        # For in-memory database, we need to create a temporary file
+        import tempfile
+        from .database_service import DatabaseService
+        
+        # Create temp database with sample data
+        temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
+        temp_db.close()
+        
+        # Initialize with sample data
+        db_service = DatabaseService(temp_db.name, create_sample_data=True)
+        db_service._conn.close()  # Close connection before DuckDB CLI opens it
+        
+        typer.echo(f"Created temporary database with sample data: {temp_db.name}")
+        typer.echo("Note: This temporary database will be deleted when you exit.")
+        db_path = temp_db.name
+        cleanup_needed = True
+    else:
+        db_path = db
+        cleanup_needed = False
+    
+    typer.echo(f"Opening DuckDB CLI for database: {db_path}")
+    typer.echo("Type .help for DuckDB commands, .exit to quit")
+    typer.echo("-" * 50)
+    
+    try:
+        # Launch DuckDB CLI
+        result = subprocess.run(["duckdb", db_path], check=False)
+        sys.exit(result.returncode)
+    except FileNotFoundError:
+        typer.echo(
+            "Error: DuckDB CLI not found. Please install DuckDB:", 
+            err=True
+        )
+        typer.echo("  • On macOS: brew install duckdb", err=True)
+        typer.echo("  • On Ubuntu/Debian: apt install duckdb", err=True)  
+        typer.echo("  • Or download from: https://duckdb.org/docs/installation/", err=True)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        typer.echo("\nExiting DuckDB CLI")
+    finally:
+        # Clean up temporary database if needed
+        if cleanup_needed:
+            import os
+            try:
+                os.unlink(db_path)
+            except OSError:
+                pass  # Ignore cleanup errors
+
 # =============================================================================
 # BULK OPERATIONS COMMANDS - File-based bulk operations
 # =============================================================================
