@@ -178,8 +178,13 @@ def register_pages(app: "FastVimes"):
                         schema = app.db_service.get_table_schema(table_name)
                         
                         # Convert data to format AGGrid expects
-                        if isinstance(data, dict) and "records" in data:
-                            rows = data["records"]
+                        if isinstance(data, dict):
+                            if "data" in data:
+                                rows = data["data"]
+                            elif "records" in data:
+                                rows = data["records"]
+                            else:
+                                rows = []
                         else:
                             rows = data if isinstance(data, list) else []
                         
@@ -233,33 +238,35 @@ def register_pages(app: "FastVimes"):
                                         with ui.card_section():
                                             ui.label(chart_config["title"]).classes("text-md font-medium mb-2")
                                             
-                                            # Prepare chart data for NiceGUI
+                                            # Prepare chart data for NiceGUI echarts
                                             if chart_config["type"] == "bar":
                                                 chart_options = {
-                                                    "chart": {"type": "column"},
                                                     "title": {"text": chart_config["title"]},
-                                                    "xAxis": {"categories": [str(item[chart_config["x_key"]]) for item in chart_config["data"]]},
-                                                    "yAxis": {"title": {"text": chart_config["y_key"].title()}},
+                                                    "xAxis": {
+                                                        "type": "category",
+                                                        "data": [str(item[chart_config["x_key"]]) for item in chart_config["data"]]
+                                                    },
+                                                    "yAxis": {"type": "value"},
                                                     "series": [{
-                                                        "name": chart_config["y_key"].title(),
+                                                        "type": "bar",
                                                         "data": [item[chart_config["y_key"]] for item in chart_config["data"]]
-                                                    }],
-                                                    "legend": {"enabled": False}
+                                                    }]
                                                 }
                                             elif chart_config["type"] == "line":
                                                 chart_options = {
-                                                    "chart": {"type": "line"},
                                                     "title": {"text": chart_config["title"]},
-                                                    "xAxis": {"categories": [str(item[chart_config["x_key"]]) for item in chart_config["data"]]},
-                                                    "yAxis": {"title": {"text": chart_config["y_key"].title()}},
+                                                    "xAxis": {
+                                                        "type": "category",
+                                                        "data": [str(item[chart_config["x_key"]]) for item in chart_config["data"]]
+                                                    },
+                                                    "yAxis": {"type": "value"},
                                                     "series": [{
-                                                        "name": chart_config["y_key"].title(),
+                                                        "type": "line",
                                                         "data": [item[chart_config["y_key"]] for item in chart_config["data"]]
-                                                    }],
-                                                    "legend": {"enabled": False}
+                                                    }]
                                                 }
                                             
-                                            ui.chart(chart_options).classes("w-full h-64")
+                                            ui.echart(chart_options).classes("w-full h-64")
                         else:
                             with ui.card().classes("w-full max-w-lg mx-auto"):
                                 with ui.card_section():

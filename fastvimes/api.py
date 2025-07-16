@@ -16,6 +16,8 @@ def build_api(db_service: DatabaseService, settings: FastVimesSettings) -> FastA
         title="FastVimes API",
         description="Auto-generated API from DuckDB schema",
         version="0.2.0",
+        docs_url="/docs",  # Available at /api/docs when mounted
+        redoc_url="/redoc", # Available at /api/redoc when mounted
     )
     
     # Store db_service for dependency injection
