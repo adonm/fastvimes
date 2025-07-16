@@ -162,7 +162,7 @@ def register_pages(app: "FastVimes"):
             # Header with navigation
             with ui.row().classes("w-full items-center mb-4"):
                 ui.label(f"Table: {table_name}").classes("text-2xl font-bold")
-                ui.spacer()
+                ui.space()
                 ui.button("Add Record", on_click=lambda: ui.navigate.to(f"/form/{table_name}")).props("color=primary")
             
             # Tabs for Data and Charts
@@ -291,7 +291,7 @@ def register_pages(app: "FastVimes"):
             # Header
             with ui.row().classes("w-full items-center mb-6"):
                 ui.label(f"Add Record to {table_name}").classes("text-2xl font-bold")
-                ui.spacer()
+                ui.space()
                 ui.button("← Back to Table", on_click=lambda: ui.navigate.to(f"/table/{table_name}")).props("flat")
             
             # Get schema and build form
