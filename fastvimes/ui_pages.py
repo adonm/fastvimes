@@ -180,14 +180,25 @@ def register_pages(app: "FastVimes"):
 
         _create_navigation_drawer()
 
-        with ui.column().classes("w-full h-full p-8"):
-            # Header with navigation
-            with ui.row().classes("w-full items-center mb-4"):
-                ui.label(f"Table: {table_name}").classes("text-2xl font-bold")
-                ui.space()
-                ui.button(
-                    "Add Record", on_click=lambda: ui.navigate.to(f"/form/{table_name}")
-                ).props("color=primary")
+        with ui.column().classes("w-full h-full p-4 lg:p-8"):
+            # Header with navigation and actions
+            with ui.card().classes("w-full mb-6 p-4"):
+                with ui.row().classes("w-full items-center justify-between flex-wrap gap-4"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(f"Table: {table_name}").classes("text-2xl font-bold text-gray-800")
+                        ui.label(f"Database table with live data").classes("text-sm text-gray-500")
+                    
+                    with ui.row().classes("gap-2 flex-wrap"):
+                        ui.button(
+                            "Add Record", 
+                            on_click=lambda: ui.navigate.to(f"/form/{table_name}"),
+                            icon="add"
+                        ).props("color=primary")
+                        ui.button(
+                            "Refresh",
+                            on_click=lambda: ui.navigate.reload(),
+                            icon="refresh"
+                        ).props("color=grey")
 
             # Tabs for Data and Charts
             with ui.tabs().classes("w-full") as tabs:
@@ -224,22 +235,27 @@ def register_pages(app: "FastVimes"):
                             for col in schema
                         ]
 
-                        # Use NiceGUI's built-in AGGrid with full feature set
-                        ui.aggrid(
-                            {
-                                "columnDefs": column_defs,
-                                "rowData": rows,
-                                "rowSelection": "multiple",
-                                "suppressRowClickSelection": False,
-                                "pagination": True,
-                                "paginationPageSize": 50,
-                                "defaultColDef": {
-                                    "resizable": True,
-                                    "sortable": True,
-                                    "filter": True,
-                                },
-                            }
-                        ).classes("w-full h-96")
+                        # Use NiceGUI's built-in AGGrid with enhanced styling
+                        with ui.card().classes("w-full shadow-lg"):
+                            with ui.card_section().classes("p-1"):
+                                ui.aggrid(
+                                    {
+                                        "columnDefs": column_defs,
+                                        "rowData": rows,
+                                        "rowSelection": "multiple",
+                                        "suppressRowClickSelection": False,
+                                        "pagination": True,
+                                        "paginationPageSize": 25,
+                                        "theme": "ag-theme-quartz",
+                                        "defaultColDef": {
+                                            "resizable": True,
+                                            "sortable": True,
+                                            "filter": True,
+                                            "width": 150,
+                                            "minWidth": 100,
+                                        },
+                                    }
+                                ).classes("w-full h-96")
 
                         # Add export buttons
                         with ui.row().classes("mt-4"):
@@ -254,8 +270,25 @@ def register_pages(app: "FastVimes"):
                                 ),
                             )
 
+                    except FileNotFoundError:
+                        with ui.card().classes("p-4 border-l-4 border-red-500"):
+                            ui.icon("warning").classes("text-red-500 text-lg mb-2")
+                            ui.label("Table not found").classes("text-lg font-semibold text-red-700")
+                            ui.label("This table may have been deleted or renamed.").classes("text-gray-600")
+                            ui.button("← Back to Tables", on_click=lambda: ui.navigate.to("/"), icon="arrow_back").classes("mt-3")
+                    except PermissionError:
+                        with ui.card().classes("p-4 border-l-4 border-yellow-500"):
+                            ui.icon("lock").classes("text-yellow-500 text-lg mb-2")
+                            ui.label("Access Denied").classes("text-lg font-semibold text-yellow-700")
+                            ui.label("You don't have permission to view this table.").classes("text-gray-600")
                     except Exception as e:
-                        ui.label(f"Error loading table: {e}").classes("text-red-500")
+                        with ui.card().classes("p-4 border-l-4 border-red-500"):
+                            ui.icon("error").classes("text-red-500 text-lg mb-2")
+                            ui.label("Error Loading Table").classes("text-lg font-semibold text-red-700")
+                            ui.label(f"Details: {e}").classes("text-sm text-gray-500")
+                            with ui.row().classes("mt-3 gap-2"):
+                                ui.button("Try Again", on_click=lambda: ui.navigate.reload(), icon="refresh")
+                                ui.button("← Back to Tables", on_click=lambda: ui.navigate.to("/"), icon="arrow_back")
 
                 # Charts Tab Panel
                 with ui.tab_panel(charts_tab):
@@ -267,8 +300,8 @@ def register_pages(app: "FastVimes"):
                                 "text-lg font-medium mb-4"
                             )
 
-                            # Create charts in a grid layout
-                            with ui.grid(columns=2).classes("w-full gap-6"):
+                            # Create charts in a responsive grid layout
+                            with ui.grid(columns="1 sm:2 lg:2 xl:3").classes("w-full gap-4 lg:gap-6"):
                                 for chart_config in chart_data["charts"]:
                                     with ui.card().classes("w-full"):
                                         with ui.card_section():
@@ -382,7 +415,11 @@ def register_pages(app: "FastVimes"):
                                             ).classes("text-sm")
 
                     except Exception as e:
-                        ui.label(f"Error loading charts: {e}").classes("text-red-500")
+                        with ui.card().classes("p-4 border-l-4 border-orange-500"):
+                            ui.icon("bar_chart").classes("text-orange-500 text-lg mb-2")
+                            ui.label("Charts Unavailable").classes("text-lg font-semibold text-orange-700")
+                            ui.label("Unable to generate charts for this table. This may be due to data structure or empty table.").classes("text-gray-600")
+                            ui.label(f"Technical details: {e}").classes("text-xs text-gray-500 mt-2")
 
     @ui.page("/form/{table_name}")
     def form_page(table_name: str):
@@ -394,57 +431,93 @@ def register_pages(app: "FastVimes"):
 
         _create_navigation_drawer()
 
-        with ui.column().classes("w-full max-w-md mx-auto p-8"):
-            # Header
-            with ui.row().classes("w-full items-center mb-6"):
-                ui.label(f"Add Record to {table_name}").classes("text-2xl font-bold")
-                ui.space()
-                ui.button(
-                    "← Back to Table",
-                    on_click=lambda: ui.navigate.to(f"/table/{table_name}"),
-                ).props("flat")
+        with ui.column().classes("w-full max-w-2xl mx-auto p-4 lg:p-8"):
+            # Header card
+            with ui.card().classes("w-full mb-6 p-4"):
+                with ui.row().classes("w-full items-center justify-between flex-wrap gap-4"):
+                    with ui.column().classes("gap-1"):
+                        ui.label(f"Add Record to {table_name}").classes("text-2xl font-bold text-gray-800")
+                        ui.label("Fill out the form below to create a new record").classes("text-sm text-gray-500")
+                    
+                    ui.button(
+                        "← Back to Table",
+                        on_click=lambda: ui.navigate.to(f"/table/{table_name}"),
+                        icon="arrow_back"
+                    ).props("flat color=grey")
 
             # Get schema and build form
             try:
                 schema = app.db_service.get_table_schema(table_name)
                 form_data = {}
 
-                with ui.card().classes("w-full p-4"):
-                    for col in schema:
-                        field_name = col["name"]
-                        field_type = col["type"].lower()
+                with ui.card().classes("w-full p-6 shadow-lg"):
+                    ui.label("Record Details").classes("text-lg font-semibold mb-4 text-gray-700")
+                    
+                    with ui.grid(columns="1 md:2").classes("w-full gap-4"):
+                        for col in schema:
+                            field_name = col["name"]
+                            field_type = col["type"].lower()
 
-                        # Create appropriate input based on type
-                        if (
-                            "int" in field_type
-                            or "float" in field_type
-                            or "double" in field_type
-                        ):
-                            form_data[field_name] = ui.number(
-                                label=field_name,
-                                value=0 if "int" in field_type else 0.0,
-                            ).classes("w-full mb-2")
-                        elif "bool" in field_type:
-                            form_data[field_name] = ui.checkbox(
-                                field_name, value=False
-                            ).classes("mb-2")
-                        elif "date" in field_type:
-                            form_data[field_name] = ui.date(label=field_name).classes(
-                                "w-full mb-2"
-                            )
-                        else:  # text/varchar/string
-                            form_data[field_name] = ui.input(label=field_name).classes(
-                                "w-full mb-2"
-                            )
+                            # Create appropriate input based on type with enhanced styling and validation
+                            if (
+                                "int" in field_type
+                                or "float" in field_type
+                                or "double" in field_type
+                            ):
+                                input_field = ui.number(
+                                    label=field_name.replace("_", " ").title(),
+                                    value=None,
+                                ).classes("w-full").props("outlined")
+                                
+                                # Add validation
+                                if "int" in field_type:
+                                    input_field.props("rules=[val => val === null || Number.isInteger(val) || 'Must be a whole number']")
+                                
+                                form_data[field_name] = input_field
+                                
+                            elif "bool" in field_type:
+                                form_data[field_name] = ui.checkbox(
+                                    field_name.replace("_", " ").title(), value=False
+                                ).classes("col-span-full")
+                                
+                            elif "date" in field_type:
+                                form_data[field_name] = ui.date(
+                                    label=field_name.replace("_", " ").title()
+                                ).classes("w-full").props("outlined")
+                                
+                            elif "email" in field_name.lower():
+                                # Special email field with validation
+                                form_data[field_name] = ui.input(
+                                    label=field_name.replace("_", " ").title(),
+                                    placeholder="user@example.com"
+                                ).classes("w-full").props("outlined type=email")
+                                
+                            else:  # text/varchar/string
+                                form_data[field_name] = ui.input(
+                                    label=field_name.replace("_", " ").title(),
+                                    placeholder=f"Enter {field_name.replace('_', ' ')}"
+                                ).classes("w-full").props("outlined")
 
-                    # Submit button
+                    # Submit button with enhanced styling
                     ui.button(
                         "Create Record",
                         on_click=lambda: _create_record(table_name, form_data, app),
-                    ).props("color=primary").classes("w-full mt-4")
+                        icon="save"
+                    ).props("color=primary size=lg").classes("w-full mt-6")
 
+            except FileNotFoundError:
+                with ui.card().classes("p-4 border-l-4 border-red-500"):
+                    ui.icon("warning").classes("text-red-500 text-lg mb-2")
+                    ui.label("Table not found").classes("text-lg font-semibold text-red-700")
+                    ui.label("This table may have been deleted or renamed.").classes("text-gray-600")
+                    ui.button("← Back to Tables", on_click=lambda: ui.navigate.to("/"), icon="arrow_back").classes("mt-3")
             except Exception as e:
-                ui.label(f"Error loading form: {e}").classes("text-red-500")
+                with ui.card().classes("p-4 border-l-4 border-red-500"):
+                    ui.icon("form").classes("text-red-500 text-lg mb-2")
+                    ui.label("Form Creation Failed").classes("text-lg font-semibold text-red-700")
+                    ui.label("Unable to create form for this table.").classes("text-gray-600")
+                    ui.label(f"Technical details: {e}").classes("text-xs text-gray-500 mt-2")
+                    ui.button("← Back to Tables", on_click=lambda: ui.navigate.to("/"), icon="arrow_back").classes("mt-3")
 
     @ui.page("/duckdb-ui")
     def duckdb_ui_page():
@@ -481,22 +554,92 @@ def _export_data(table_name: str, format: str, app: "FastVimes"):
         # Trigger download
         ui.download(data, filename=f"{table_name}.{format}")
         ui.notify(f"Exported {table_name} as {format.upper()}")
+    except PermissionError:
+        ui.notify("Export failed: Permission denied", type="negative")
+    except FileNotFoundError:
+        ui.notify("Export failed: Table not found", type="negative")
     except Exception as e:
         ui.notify(f"Export failed: {e}", type="negative")
 
 
-def _create_record(table_name: str, form_data: dict, app: "FastVimes"):
-    """Create a new record from form data."""
-    try:
-        # Extract values from form components
-        record_data = {}
-        for field_name, component in form_data.items():
-            record_data[field_name] = component.value
+def _validate_form_data(form_data: dict, schema: list) -> tuple[dict, list]:
+    """Validate form data and return cleaned data and errors."""
+    errors = []
+    record_data = {}
+    
+    for col in schema:
+        field_name = col["name"]
+        field_type = col["type"].lower()
+        component = form_data.get(field_name)
+        
+        if not component:
+            continue
+            
+        value = component.value
+        
+        # Basic validation by type
+        if "int" in field_type:
+            try:
+                if value is not None and value != "":
+                    record_data[field_name] = int(value)
+                else:
+                    record_data[field_name] = None
+            except (ValueError, TypeError):
+                errors.append(f"{field_name.replace('_', ' ').title()}: Must be a whole number")
+                
+        elif "float" in field_type or "double" in field_type:
+            try:
+                if value is not None and value != "":
+                    record_data[field_name] = float(value)
+                else:
+                    record_data[field_name] = None
+            except (ValueError, TypeError):
+                errors.append(f"{field_name.replace('_', ' ').title()}: Must be a number")
+                
+        elif "bool" in field_type:
+            record_data[field_name] = bool(value)
+            
+        elif "email" in field_name.lower():
+            # Basic email validation
+            if value and "@" not in value:
+                errors.append(f"{field_name.replace('_', ' ').title()}: Must be a valid email address")
+            record_data[field_name] = value
+            
+        else:
+            # String validation
+            if isinstance(value, str) and len(value.strip()) == 0:
+                record_data[field_name] = None
+            else:
+                record_data[field_name] = value
+    
+    return record_data, errors
 
+
+def _create_record(table_name: str, form_data: dict, app: "FastVimes"):
+    """Create a new record from form data with validation."""
+    try:
+        # Get schema for validation
+        schema = app.db_service.get_table_schema(table_name)
+        
+        # Validate form data
+        record_data, validation_errors = _validate_form_data(form_data, schema)
+        
+        if validation_errors:
+            error_msg = "Please fix the following errors:\n" + "\n".join(validation_errors)
+            ui.notify(error_msg, type="negative", timeout=5000)
+            return
+        
+        # Remove empty/None values for optional fields
+        cleaned_data = {k: v for k, v in record_data.items() if v is not None}
+        
         # Create the record
-        app.db_service.create_record(table_name, record_data)
-        ui.notify("Record created successfully", type="positive")
+        app.db_service.create_record(table_name, cleaned_data)
+        ui.notify("Record created successfully! 🎉", type="positive")
         ui.navigate.to(f"/table/{table_name}")
 
+    except ValueError as e:
+        ui.notify(f"Invalid data: {e}", type="negative")
+    except PermissionError:
+        ui.notify("Failed to create record: Permission denied", type="negative")
     except Exception as e:
         ui.notify(f"Failed to create record: {e}", type="negative")
