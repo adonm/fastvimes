@@ -1,14 +1,14 @@
 # Component Override Guide
 
-FastVimes provides a powerful component override system that allows you to customize the auto-generated UI components for specific tables or globally. This guide shows how to implement custom components while maintaining the auto-generation benefits.
+FastVimes provides a simple page override system that allows you to customize the auto-generated UI pages for specific tables. This guide shows how to implement custom pages while maintaining the auto-generation benefits for other tables.
 
 ## Overview
 
-The component override pattern in FastVimes allows you to:
+The page override pattern in FastVimes allows you to:
 
-1. **Selectively customize** specific components for certain tables
-2. **Maintain auto-generation** for tables that don't need customization
-3. **Extend existing components** rather than replacing them entirely
+1. **Selectively customize** specific pages for certain tables
+2. **Maintain auto-generation** for tables that don't need customization  
+3. **Create fully custom NiceGUI pages** when needed
 4. **Use a simple inheritance model** for easy customization
 
 ## Available Override Methods
@@ -16,333 +16,288 @@ The component override pattern in FastVimes allows you to:
 ### In your FastVimes subclass, override these methods:
 
 ```python
+from fastvimes import FastVimes
+from nicegui import ui
+
 class CustomFastVimes(FastVimes):
-    def table_component(self, table_name: str):
-        """Override table display component (DataExplorer)."""
+    def override_table_page(self, table_name: str):
+        """Override table display page. Return None to use default."""
         if table_name == 'users':
-            return CustomDataExplorer(self.api_client, table_name)
-        return super().table_component(table_name)  # Default for others
+            return self._custom_users_table()
+        return None  # Use default auto-generated page for others
         
-    def form_component(self, table_name: str):
-        """Override form component (FormGenerator)."""
+    def override_form_page(self, table_name: str):
+        """Override form page. Return None to use default."""
         if table_name == 'products':
-            return CustomFormGenerator(self.api_client, table_name)
-        return super().form_component(table_name)
+            return self._custom_products_form()
+        return None  # Use default auto-generated form for others
+
+    def _custom_users_table(self):
+        """Custom table page for users with special functionality."""
+        with ui.column().classes("w-full h-full p-8"):
+            ui.label("Custom Users Management").classes("text-3xl font-bold mb-4")
+            
+            # Add custom widgets here
+            with ui.card().classes("w-full"):
+                ui.label("This is a custom users table page")
+                # Add your custom table logic here
+                
+    def _custom_products_form(self):
+        """Custom form page for products with validation."""
+        with ui.column().classes("w-full max-w-2xl mx-auto p-8"):
+            ui.label("Custom Product Form").classes("text-3xl font-bold mb-4")
+            
+            # Add custom form widgets here  
+            with ui.card().classes("w-full p-6"):
+                ui.label("This is a custom products form")
+                # Add your custom form logic here
+```
+
+## Page Customization Patterns
+
+### 1. Conditional Overrides
+
+**Best Practice**: Override specific tables while keeping auto-generation for others:
+
+```python
+class MyApp(FastVimes):
+    def override_table_page(self, table_name: str):
+        """Custom table pages for specific tables only."""
+        if table_name == 'users':
+            return self._users_dashboard()
+        elif table_name == 'orders':
+            return self._orders_analytics()
+        elif table_name == 'logs':
+            return self._logs_viewer()
         
-    def query_component(self, table_name: str):
-        """Override query builder component (QueryBuilder)."""
-        if table_name == 'orders':
-            return CustomQueryBuilder(self.api_client, table_name)
-        return super().query_component(table_name)
+        return None  # Use auto-generated pages for other tables
+
+    def _users_dashboard(self):
+        """Custom users dashboard with analytics."""
+        with ui.column().classes("w-full p-8"):
+            ui.label("User Management Dashboard").classes("text-2xl font-bold mb-6")
+            
+            # Get user stats
+            stats = self.db_service.execute_query(
+                "SELECT COUNT(*) as total, COUNT(CASE WHEN active THEN 1 END) as active FROM users"
+            )[0]
+            
+            # Display stats cards
+            with ui.row().classes("gap-4 mb-6"):
+                with ui.card().classes("p-4"):
+                    ui.label("Total Users").classes("text-sm text-gray-500")
+                    ui.label(str(stats['total'])).classes("text-2xl font-bold")
+                    
+                with ui.card().classes("p-4"):
+                    ui.label("Active Users").classes("text-sm text-gray-500") 
+                    ui.label(str(stats['active'])).classes("text-2xl font-bold")
+            
+            # Add custom user management widgets
+            ui.label("User Actions").classes("text-lg font-medium mb-4")
+            with ui.row().classes("gap-2"):
+                ui.button("Export Users", icon="download")
+                ui.button("Send Newsletter", icon="mail")
+                ui.button("User Analytics", icon="analytics")
+```
+
+### 2. Global Page Overrides
+
+Override pages for all tables with common customizations:
+
+```python
+class MyApp(FastVimes):
+    def override_table_page(self, table_name: str):
+        """Add custom header to all table pages."""
+        return self._enhanced_table_page(table_name)
         
-    def table_browser_component(self):
-        """Override table browser component (TableBrowser)."""
-        return CustomTableBrowser(self.api_client)
-```
-
-## Component Customization Patterns
-
-### 1. Extending Existing Components
-
-**Best Practice**: Extend existing components rather than replacing them:
-
-```python
-class CustomDataExplorer(DataExplorer):
-    """Custom data explorer with additional features."""
-    
-    def _render_header(self):
-        """Override header with custom buttons."""
-        with ui.row().classes('w-full justify-between items-center mb-4'):
-            ui.label(f'Custom: {self.table_name}').classes('text-h6 text-blue-600')
+    def _enhanced_table_page(self, table_name: str):
+        """Enhanced table page with custom navigation and branding."""
+        with ui.column().classes("w-full h-full"):
+            # Custom header
+            with ui.card().classes("w-full mb-4 p-4"):
+                with ui.row().classes("items-center justify-between"):
+                    ui.label(f"🏢 Company Data - {table_name.title()}").classes("text-xl font-bold")
+                    ui.button("Export All", icon="download")
             
-            with ui.row().classes('gap-2'):
-                # Add custom buttons
-                ui.button('Custom Action', icon='star', on_click=self._custom_action)
-                # Call parent method for standard buttons
-                super()._render_header()
-                
-    def _custom_action(self):
-        """Custom action implementation."""
-        ui.notify('Custom action triggered!', type='info')
+            # Include default table content by calling original UI logic
+            # You can replicate the table display logic from ui_pages.py here
+            with ui.card().classes("w-full"):
+                ui.label("Enhanced table view coming soon...")
+                # Implement custom table display logic
 ```
 
-### 2. Conditional Component Selection
+## NiceGUI Integration
 
-**Pattern**: Use table-specific logic to choose components:
+### Working with Database Service
 
-```python
-def table_component(self, table_name: str):
-    """Different components for different table types."""
-    if table_name == 'users':
-        return UserDataExplorer(self.api_client, table_name)
-    elif table_name.startswith('log_'):
-        return LogDataExplorer(self.api_client, table_name)
-    elif table_name in ['products', 'inventory']:
-        return ProductDataExplorer(self.api_client, table_name)
-    else:
-        return super().table_component(table_name)  # Default
-```
-
-### 3. Global Component Replacement
-
-**Pattern**: Replace components globally:
+Access the database service in your custom pages:
 
 ```python
-def table_component(self, table_name: str):
-    """Use custom component for all tables."""
-    return EnhancedDataExplorer(self.api_client, table_name)
-```
-
-## Real-World Examples
-
-### Example 1: User Management Component
-
-```python
-class UserDataExplorer(DataExplorer):
-    """Specialized component for user management."""
-    
-    def _render_header(self):
-        """Custom header with user-specific actions."""
-        with ui.row().classes('w-full justify-between items-center mb-4'):
-            ui.label(f'User Management: {self.table_name}').classes('text-h6')
-            
-            with ui.row().classes('gap-2'):
-                ui.button('Invite User', icon='person_add', on_click=self._invite_user)
-                ui.button('Export Users', icon='download', on_click=self._export_users)
-                ui.button('Refresh', icon='refresh', on_click=self._refresh_data)
-                
-    def _invite_user(self):
-        """Open invite user dialog."""
-        with ui.dialog() as dialog:
-            with ui.card():
-                ui.label('Invite New User').classes('text-h6 mb-4')
-                email_input = ui.input('Email').classes('w-full')
-                role_select = ui.select(['admin', 'user', 'viewer'], label='Role').classes('w-full')
-                
-                with ui.row().classes('w-full justify-end mt-4'):
-                    ui.button('Cancel', on_click=dialog.close).props('outline')
-                    ui.button('Send Invite', on_click=lambda: self._send_invite(dialog, email_input, role_select))
-        dialog.open()
+class MyApp(FastVimes):
+    def override_table_page(self, table_name: str):
+        if table_name == 'analytics':
+            return self._analytics_dashboard()
+        return None
         
-    def _send_invite(self, dialog, email_input, role_select):
-        """Send user invitation."""
-        # Custom invitation logic
-        ui.notify(f'Invitation sent to {email_input.value}', type='positive')
-        dialog.close()
+    def _analytics_dashboard(self):
+        """Custom analytics dashboard."""
+        with ui.column().classes("w-full p-8"):
+            ui.label("Analytics Dashboard").classes("text-2xl font-bold mb-6")
+            
+            # Query data using database service
+            daily_stats = self.db_service.execute_query("""
+                SELECT 
+                    DATE(created_at) as date,
+                    COUNT(*) as records
+                FROM analytics 
+                WHERE created_at >= CURRENT_DATE - INTERVAL 30 DAYS
+                GROUP BY DATE(created_at)
+                ORDER BY date
+            """)
+            
+            # Create chart with NiceGUI
+            if daily_stats:
+                chart_data = {
+                    "title": {"text": "Daily Records"},
+                    "xAxis": {"type": "category", "data": [row["date"] for row in daily_stats]},
+                    "yAxis": {"type": "value"},
+                    "series": [{
+                        "type": "line",
+                        "data": [row["records"] for row in daily_stats]
+                    }]
+                }
+                ui.echart(chart_data).classes("w-full h-64")
 ```
 
-### Example 2: Product Catalog Component
+## Form Customization Examples
+
+### Custom Form with Validation
 
 ```python
-class ProductDataExplorer(DataExplorer):
-    """Specialized component for product catalog."""
-    
-    def _render_bulk_operations(self):
-        """Custom bulk operations for products."""
-        if not self.selected_rows:
-            return
+class MyApp(FastVimes):
+    def override_form_page(self, table_name: str):
+        if table_name == 'users':
+            return self._custom_user_form()
+        return None
+        
+    def _custom_user_form(self):
+        """Custom user form with enhanced validation."""
+        with ui.column().classes("w-full max-w-2xl mx-auto p-8"):
+            ui.label("Create New User").classes("text-2xl font-bold mb-6")
             
-        with ui.row().classes('w-full p-2 bg-blue-50 rounded mb-2'):
-            ui.label(f'{len(self.selected_rows)} products selected').classes('text-sm')
-            with ui.row().classes('gap-2 ml-auto'):
-                ui.button('Update Prices', icon='attach_money', on_click=self._bulk_update_prices)
-                ui.button('Change Category', icon='category', on_click=self._bulk_change_category)
-                ui.button('Mark Sale', icon='local_offer', on_click=self._bulk_mark_sale)
-                # Call parent for standard operations
-                super()._render_bulk_operations()
+            with ui.card().classes("w-full p-6"):
+                # Form fields
+                name_input = ui.input("Full Name", placeholder="Enter full name").classes("w-full mb-4")
+                email_input = ui.input("Email", placeholder="user@company.com").classes("w-full mb-4")
+                role_select = ui.select(["admin", "user", "viewer"], label="Role").classes("w-full mb-4")
                 
-    def _bulk_update_prices(self):
-        """Bulk price update dialog."""
-        with ui.dialog() as dialog:
-            with ui.card():
-                ui.label('Update Prices').classes('text-h6 mb-4')
+                # Custom validation
+                def validate_and_submit():
+                    if not name_input.value or len(name_input.value.strip()) < 2:
+                        ui.notify("Name must be at least 2 characters", type="negative")
+                        return
+                        
+                    if not email_input.value or "@" not in email_input.value:
+                        ui.notify("Please enter a valid email", type="negative")
+                        return
+                    
+                    # Create user with database service
+                    try:
+                        self.db_service.create_record("users", {
+                            "name": name_input.value.strip(),
+                            "email": email_input.value.strip(), 
+                            "role": role_select.value,
+                            "active": True
+                        })
+                        ui.notify("User created successfully!", type="positive")
+                        ui.navigate.to("/table/users")
+                    except Exception as e:
+                        ui.notify(f"Error creating user: {e}", type="negative")
                 
-                price_input = ui.number('New Price', prefix='$').classes('w-full')
-                discount_input = ui.number('Discount %', suffix='%').classes('w-full')
-                
-                with ui.row().classes('w-full justify-end mt-4'):
-                    ui.button('Cancel', on_click=dialog.close).props('outline')
-                    ui.button('Update', on_click=lambda: self._apply_price_update(dialog, price_input, discount_input))
-        dialog.open()
+                ui.button("Create User", on_click=validate_and_submit, icon="person_add").props("color=primary").classes("w-full")
 ```
 
-### Example 3: Analytics Dashboard Component
+## Testing Override Pages
+
+### Testing Custom Pages
 
 ```python
-class AnalyticsQueryBuilder(QueryBuilder):
-    """Query builder with analytics presets."""
-    
-    def render(self):
-        """Render with analytics presets."""
-        with ui.card().classes('w-full'):
-            ui.label('Analytics Dashboard').classes('text-h6 text-purple-600 mb-4')
-            
-            # Analytics presets
-            with ui.row().classes('mb-4'):
-                ui.label('Quick Analytics:').classes('text-sm font-bold')
-                ui.button('Daily Report', on_click=self._daily_report).props('dense')
-                ui.button('Weekly Trends', on_click=self._weekly_trends).props('dense')
-                ui.button('Monthly Summary', on_click=self._monthly_summary).props('dense')
-            
-            # Call parent render
-            super().render()
-            
-    def _daily_report(self):
-        """Generate daily report query."""
-        self.filters = [{"column": "created_at", "operator": "gt", "value": "TODAY()"}]
-        self._execute_query()
+# Test your custom app
+app = CustomFastVimes(db_path="test.db")
+
+# Test specific overrides
+users_page = app.override_table_page("users")
+products_form = app.override_form_page("products")
+
+# Verify overrides work
+assert users_page is not None  # Should return custom page
+assert app.override_table_page("orders") is None  # Should use default
+
+app.serve()
 ```
 
 ## Best Practices
 
-### 1. **Extend, Don't Replace**
+### 1. Keep Default Behavior for Most Tables
+- Only override when you need specific customization
+- Let FastVimes auto-generate standard CRUD interfaces
+- Override selectively for special business logic
+
+### 2. Use Database Service Methods
+- Access data through `self.db_service` methods
+- Don't bypass the database service layer
+- Maintain data consistency and validation
+
+### 3. Follow NiceGUI Patterns
+- Use NiceGUI's built-in components (`ui.card`, `ui.button`, etc.)
+- Follow responsive design patterns with proper CSS classes
+- Handle errors gracefully with `ui.notify()`
+
+### 4. Maintain Navigation
+- Include navigation elements in custom pages
+- Provide clear ways to return to table lists
+- Keep the user experience consistent
+
+## Architecture Summary
+
+```
+FastVimes App
+├── override_table_page(table_name) → Custom NiceGUI Page or None
+├── override_form_page(table_name) → Custom NiceGUI Page or None  
+└── db_service → DatabaseService methods for data access
+
+Default Behavior (when override returns None):
+├── Auto-generated table pages with AGGrid
+├── Auto-generated form pages with schema-based fields
+└── Standard navigation and CRUD operations
+```
+
+## Common Patterns
+
+### 1. Analytics Dashboard
 ```python
-# ✅ Good: Extend existing functionality
-class CustomDataExplorer(DataExplorer):
-    def _render_header(self):
-        # Add custom elements
-        ui.button('Custom Action', on_click=self._custom_action)
-        # Call parent for standard functionality
-        super()._render_header()
-
-# ❌ Avoid: Complete replacement loses auto-generation benefits
-class CustomDataExplorer(DataExplorer):
-    def render(self):
-        # Completely custom render loses all auto-generation
-        with ui.card():
-            ui.label('Custom Component')
+def override_table_page(self, table_name: str):
+    if table_name in ['analytics', 'metrics', 'stats']:
+        return self._analytics_dashboard(table_name)
+    return None
 ```
 
-### 2. **Use Conditional Logic**
+### 2. Enhanced Forms  
 ```python
-# ✅ Good: Selective customization
-def table_component(self, table_name: str):
-    if table_name == 'users':
-        return CustomDataExplorer(self.api_client, table_name)
-    return super().table_component(table_name)  # Auto-generation for others
-
-# ❌ Avoid: Global replacement loses flexibility
-def table_component(self, table_name: str):
-    return CustomDataExplorer(self.api_client, table_name)  # All tables
+def override_form_page(self, table_name: str):
+    if table_name in ['users', 'customers', 'orders']:
+        return self._enhanced_form(table_name)
+    return None
 ```
 
-### 3. **Maintain API Consistency**
+### 3. Read-only Displays
 ```python
-# ✅ Good: Custom components use same API
-class CustomDataExplorer(DataExplorer):
-    def __init__(self, api_client: FastVimesAPIClient, table_name: str):
-        super().__init__(api_client, table_name)
-        # Custom initialization
-
-# ❌ Avoid: Breaking API contracts
-class CustomDataExplorer(DataExplorer):
-    def __init__(self, custom_param, api_client, table_name):
-        # Changes API contract
+def override_table_page(self, table_name: str):
+    if table_name in ['logs', 'audit_trail']:
+        return self._readonly_display(table_name)
+    return None
 ```
 
-### 4. **Progressive Enhancement**
-```python
-# ✅ Good: Start simple, add complexity gradually
-class CustomDataExplorer(DataExplorer):
-    def _render_header(self):
-        """Start with one custom button."""
-        super()._render_header()
-        ui.button('Custom Action', on_click=self._custom_action)
+---
 
-# Then later enhance:
-class CustomDataExplorer(DataExplorer):
-    def _render_header(self):
-        """Add more custom features over time."""
-        super()._render_header()
-        ui.button('Custom Action', on_click=self._custom_action)
-        ui.button('Another Action', on_click=self._another_action)
-```
-
-## Component Architecture
-
-### Component Hierarchy
-```
-FastVimes
-├── table_browser_component() → TableBrowser
-├── table_component(table_name) → DataExplorer
-├── form_component(table_name) → FormGenerator
-└── query_component(table_name) → QueryBuilder
-```
-
-### Override Points
-Each component has specific override points:
-
-**DataExplorer**:
-- `_render_header()` - Header with action buttons
-- `_render_filters()` - Filter controls
-- `_render_bulk_operations()` - Bulk operation toolbar
-- `_render_data_table()` - Main data table
-- `_render_pagination()` - Pagination controls
-
-**FormGenerator**:
-- `render()` - Main form render
-- `_render_field()` - Individual field rendering
-- `_validate_form()` - Form validation logic
-
-**QueryBuilder**:
-- `render()` - Main query builder interface
-- `_render_filters()` - Filter configuration
-- `_execute_query()` - Query execution logic
-
-**TableBrowser**:
-- `render()` - Main table listing
-- `_render_table_list()` - Table list rendering
-- `_render_table_item()` - Individual table items
-
-## Testing Custom Components
-
-```python
-# Test component override
-def test_custom_component_override():
-    app = CustomFastVimes()
-    
-    # Test that custom component is used
-    custom_component = app.table_component('users')
-    assert isinstance(custom_component, CustomDataExplorer)
-    
-    # Test that default component is used for other tables
-    default_component = app.table_component('products')
-    assert isinstance(default_component, DataExplorer)
-```
-
-## Migration Guide
-
-### From Manual UI to Component Override
-
-**Before** (Manual UI):
-```python
-@ui.page('/users')
-def users_page():
-    # Manual UI construction
-    with ui.card():
-        ui.label('Users')
-        # Manual table creation
-        ui.table(columns=columns, rows=rows)
-```
-
-**After** (Component Override):
-```python
-class UserDataExplorer(DataExplorer):
-    def _render_header(self):
-        ui.label('Users').classes('text-h6')
-        super()._render_header()
-
-class CustomFastVimes(FastVimes):
-    def table_component(self, table_name: str):
-        if table_name == 'users':
-            return UserDataExplorer(self.api_client, table_name)
-        return super().table_component(table_name)
-```
-
-**Benefits**:
-- Keeps auto-generation for schema changes
-- Maintains API consistency
-- Easier to test and maintain
-- Progressive enhancement path
-
-This override pattern provides the perfect balance between auto-generation benefits and customization flexibility.
+**Next Steps**: Check out the [UI Walkthrough](UI_WALKTHROUGH.md) to see the default auto-generated interface, then experiment with custom overrides for your specific use cases.

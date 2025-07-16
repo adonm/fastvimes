@@ -55,15 +55,15 @@ app.serve()  # Gets full Datasette-style interface
 
 # Incremental customization
 class MyApp(FastVimes):
-    def table_component(self, table_name: str):
+    def override_table_page(self, table_name: str):
         if table_name == "users":
-            return custom_user_table()  # Custom component
-        return super().table_component(table_name)  # Default for others
+            return custom_user_table()  # Custom page
+        return None  # Use default for others
         
-    def form_component(self, table_name: str):
+    def override_form_page(self, table_name: str):
         if table_name == "orders":
-            return custom_order_form()  # Custom form logic
-        return super().form_component(table_name)  # Auto-generated forms
+            return custom_order_form()  # Custom form page
+        return None  # Use auto-generated forms
 
 MyApp().serve()
 ```

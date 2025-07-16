@@ -103,8 +103,8 @@ FastVimes provides powerful tools for data exploration and analysis:
 - **Parquet**: High-performance data format for analytics
 
 ### Real-time Features
-- **Live Updates**: Changes appear immediately
-- **Auto-refresh**: Optional automatic data refresh
+- **Live Updates**: Changes appear immediately in forms
+- **Manual Refresh**: Refresh button to reload table data
 - **Error Handling**: Graceful handling of data issues
 
 ---
