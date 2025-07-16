@@ -616,8 +616,8 @@ class TestCLIBulkCommandsMultiSchema:
             """)
 
             db_service.execute_query("""
-                INSERT INTO custom_table (custom_id, custom_name, custom_value, custom_flag) 
-                VALUES 
+                INSERT INTO custom_table (custom_id, custom_name, custom_value, custom_flag)
+                VALUES
                     (1, 'Item 1', 100.5, true),
                     (2, 'Item 2', 200.7, false),
                     (3, 'Item 3', 300.9, true)

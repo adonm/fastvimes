@@ -426,7 +426,7 @@ class TestBulkOperationsErrorHandling:
 
     def test_bulk_insert_nonexistent_file(self, db_service):
         """Test bulk insert with non-existent file."""
-        with pytest.raises(Exception):  # Could be FileNotFoundError or RuntimeError
+        with pytest.raises((FileNotFoundError, RuntimeError)):
             db_service.bulk_insert_from_file("users", "/nonexistent/file.json", "json")
 
     def test_bulk_insert_invalid_json(self, db_service):

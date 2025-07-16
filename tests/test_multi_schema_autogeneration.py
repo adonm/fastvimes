@@ -1,6 +1,5 @@
 """Test autogeneration works with different schema patterns."""
 
-
 import pytest
 
 

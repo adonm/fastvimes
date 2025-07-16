@@ -6,6 +6,8 @@ import pytest
 
 from fastvimes.database_service import DatabaseService
 
+pytestmark = pytest.mark.fast
+
 
 @pytest.fixture
 def db_service():

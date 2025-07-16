@@ -4,6 +4,8 @@ import pytest
 
 from fastvimes.rql_to_sql import RQLToSQLConverter, convert_rql_to_sql
 
+pytestmark = pytest.mark.fast
+
 
 def test_simple_equality():
     """Test basic equality conversion."""

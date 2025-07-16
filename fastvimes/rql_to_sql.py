@@ -33,7 +33,7 @@ class RQLToSQLConverter:
         try:
             parsed_rql = pyrql.parse(rql_query)
         except Exception as e:
-            raise ValueError(f"Invalid RQL query: {e}")
+            raise ValueError(f"Invalid RQL query: {e}") from e
 
         # Start with basic SELECT
         query = sqlglot.select("*").from_(table_name)
@@ -216,7 +216,7 @@ class RQLToSQLConverter:
             return exp.Like(this=column, expression=exp.Placeholder()), params
 
         elif operator == "in":
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 in_params = []
                 for val in value:
                     params.append(val)
@@ -224,7 +224,7 @@ class RQLToSQLConverter:
                 return exp.In(this=column, expressions=in_params), params
 
         elif operator == "out":
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 in_params = []
                 for val in value:
                     params.append(val)

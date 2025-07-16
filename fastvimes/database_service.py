@@ -212,7 +212,7 @@ class DatabaseService:
         """List all tables and views in the database."""
         query = """
         SELECT table_name, table_type
-        FROM information_schema.tables 
+        FROM information_schema.tables
         WHERE table_schema = 'main'
         ORDER BY table_name
         """
@@ -306,10 +306,13 @@ class DatabaseService:
                 query = query.offset(offset)
 
             sql = query.sql(dialect="duckdb")
-            result = self.connection.execute(sql).fetchall()
-            # Get column names from the result we just executed
-            columns = [desc[0] for desc in self.connection.description]
-            total_count = self._get_table_count(table_name)
+            try:
+                result = self.connection.execute(sql).fetchall()
+                # Get column names from the result we just executed
+                columns = [desc[0] for desc in self.connection.description]
+                total_count = self._get_table_count(table_name)
+            except Exception as e:
+                raise ValueError(f"Table '{table_name}' not found or query failed: {e}") from e
 
         data = [dict(zip(columns, row, strict=False)) for row in result]
 
@@ -389,7 +392,7 @@ class DatabaseService:
             # Clean up temp table
             try:
                 self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
-            except:
+            except Exception:
                 pass
 
     def _export_to_parquet(
@@ -471,7 +474,7 @@ class DatabaseService:
             # Clean up temp table
             try:
                 self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
-            except:
+            except Exception:
                 pass
 
     def _get_table_count(self, table_name: str) -> int:
@@ -562,7 +565,9 @@ class DatabaseService:
                 # Return success message if no primary key
                 return {"message": "Record created successfully", "data": data}
         except Exception as e:
-            raise RuntimeError(f"Failed to create record in {table_name}: {str(e)}")
+            raise RuntimeError(
+                f"Failed to create record in {table_name}: {str(e)}"
+            ) from e
 
     def get_record_by_id(self, table_name: str, record_id: int) -> dict[str, Any]:
         """Get a single record by ID."""
@@ -618,7 +623,6 @@ class DatabaseService:
             raise ValueError("No data provided for record update")
 
         # Build SET clause
-        set_clause = ", ".join([f"{col} = ?" for col in data.keys()])
         values = list(data.values())
 
         # Build WHERE clause
@@ -701,7 +705,9 @@ class DatabaseService:
             # DuckDB rowcount is unreliable, return count_before as updated count
             return count_before
         except Exception as e:
-            raise RuntimeError(f"Failed to update records in {table_name}: {str(e)}")
+            raise RuntimeError(
+                f"Failed to update records in {table_name}: {str(e)}"
+            ) from e
 
     def delete_records(
         self,
@@ -787,7 +793,9 @@ class DatabaseService:
             # DuckDB rowcount is unreliable, return count_before as deleted count
             return count_before
         except Exception as e:
-            raise RuntimeError(f"Failed to delete records from {table_name}: {str(e)}")
+            raise RuntimeError(
+                f"Failed to delete records from {table_name}: {str(e)}"
+            ) from e
 
     def execute_query(
         self, query: str, params: list[Any] | None = None
@@ -802,7 +810,7 @@ class DatabaseService:
             columns = [desc[0] for desc in self.connection.description]
             return [dict(zip(columns, row, strict=False)) for row in result]
         except Exception as e:
-            raise RuntimeError(f"Query execution failed: {str(e)}")
+            raise RuntimeError(f"Query execution failed: {str(e)}") from e
 
     # Bulk Operations using DuckDB native file handling
     def bulk_insert_from_file(
@@ -859,7 +867,7 @@ class DatabaseService:
             return count_after - count_before
 
         except Exception as e:
-            raise RuntimeError(f"Bulk insert failed for {table_name}: {str(e)}")
+            raise RuntimeError(f"Bulk insert failed for {table_name}: {str(e)}") from e
 
     def bulk_upsert_from_file(
         self,
@@ -937,7 +945,7 @@ class DatabaseService:
                 set_clause = ", ".join(set_clauses)
 
                 update_sql = f"""
-                    UPDATE {table_name} 
+                    UPDATE {table_name}
                     SET {set_clause}
                     FROM {temp_table}
                     WHERE {key_condition}
@@ -951,7 +959,7 @@ class DatabaseService:
                 SELECT {column_list}
                 FROM {temp_table}
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM {table_name} 
+                    SELECT 1 FROM {table_name}
                     WHERE {key_condition}
                 )
             """
@@ -976,9 +984,9 @@ class DatabaseService:
             # Clean up temporary table on error
             try:
                 self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
-            except:
+            except Exception:
                 pass
-            raise RuntimeError(f"Bulk upsert failed for {table_name}: {str(e)}")
+            raise RuntimeError(f"Bulk upsert failed for {table_name}: {str(e)}") from e
 
     def bulk_delete_from_file(
         self,
@@ -1067,9 +1075,9 @@ class DatabaseService:
             # Clean up temporary table on error
             try:
                 self.connection.execute(f"DROP TABLE IF EXISTS {temp_table}")
-            except:
+            except Exception:
                 pass
-            raise RuntimeError(f"Bulk delete failed for {table_name}: {str(e)}")
+            raise RuntimeError(f"Bulk delete failed for {table_name}: {str(e)}") from e
 
     def _table_exists(self, table_name: str) -> bool:
         """Check if a table exists."""

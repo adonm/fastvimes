@@ -19,8 +19,8 @@ SCHEMA_CONFIGS = {
         "setup_queries": [
             # Create a table from NYC taxi data with different schema
             """
-            CREATE TABLE trips AS 
-            SELECT 
+            CREATE TABLE trips AS
+            SELECT
                 passenger_count,
                 trip_distance,
                 fare_amount,
@@ -34,7 +34,7 @@ SCHEMA_CONFIGS = {
             # Create another table with different structure
             """
             CREATE TABLE trip_summary AS
-            SELECT 
+            SELECT
                 DATE(pickup_datetime) as trip_date,
                 COUNT(*) as total_trips,
                 AVG(fare_amount) as avg_fare,

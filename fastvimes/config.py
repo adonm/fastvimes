@@ -1,6 +1,5 @@
 """Configuration management using pydantic-settings."""
 
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +25,10 @@ class FastVimesSettings(BaseSettings):
     # UI settings
     title: str = "FastVimes"
     embedded_ui_enabled: bool = True
+    dark_mode: bool = False
+
+    # Logging settings
+    log_level: str = "INFO"
 
     # DuckDB UI settings
     duckdb_ui_enabled: bool = True
@@ -45,6 +48,11 @@ class FastVimesSettings(BaseSettings):
     oauth_client_secret: str = ""
     oauth_redirect_uri: str = "http://localhost:8000/auth/callback"
     oauth_scopes: list[str] = ["openid", "email", "profile"]
+
+    # HTTP Basic Auth Configuration (fallback when OAuth not configured)
+    basic_auth_enabled: bool = True  # Enable basic auth when OAuth not configured
+    default_admin_username: str = "vimes"
+    default_admin_password: str = "nightwatch"
 
     # Authorization Configuration
     require_auth_for_read: bool = False

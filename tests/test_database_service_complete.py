@@ -15,6 +15,7 @@ def db_service():
     service.close()
 
 
+@pytest.mark.fast
 class TestDatabaseServiceBasics:
     """Test basic database service functionality."""
 
@@ -50,6 +51,7 @@ class TestDatabaseServiceBasics:
         assert result["total_count"] > 0
 
 
+@pytest.mark.fast
 class TestRQLFiltering:
     """Test RQL filtering with SQL generation."""
 
@@ -96,6 +98,7 @@ class TestRQLFiltering:
         assert any("Alice" in user["name"] for user in result["data"])
 
 
+@pytest.mark.fast
 class TestRQLSorting:
     """Test RQL sorting operations."""
 
@@ -121,6 +124,7 @@ class TestRQLSorting:
         assert names == sorted(names)
 
 
+@pytest.mark.fast
 class TestRQLSelection:
     """Test field selection."""
 
@@ -143,6 +147,7 @@ class TestRQLSelection:
             assert set(user.keys()) == {"name", "email", "department"}
 
 
+@pytest.mark.fast
 class TestRQLComplexQueries:
     """Test complex RQL queries."""
 
@@ -187,6 +192,7 @@ class TestRQLComplexQueries:
         assert ages == sorted(ages)
 
 
+@pytest.mark.fast
 class TestPagination:
     """Test pagination functionality."""
 
@@ -219,12 +225,13 @@ class TestPagination:
         assert all(user["active"] for user in result["data"])
 
 
+@pytest.mark.fast
 class TestErrorHandling:
     """Test error handling and edge cases."""
 
     def test_invalid_table_name(self, db_service):
         """Test behavior with invalid table name."""
-        with pytest.raises(Exception):
+        with pytest.raises((RuntimeError, ValueError)):
             db_service.get_table_data("nonexistent_table")
 
     def test_invalid_rql_fallback(self, db_service):
@@ -244,6 +251,7 @@ class TestErrorHandling:
         assert len(result["data"]) > 0
 
 
+@pytest.mark.fast
 class TestCRUDOperations:
     """Test Create, Read, Update, Delete operations."""
 
@@ -302,6 +310,6 @@ class TestCRUDOperations:
         # Verify it's gone
         try:
             db_service.get_record_by_id("users", created["id"])
-            assert False, "Record should have been deleted"
+            raise AssertionError("Record should have been deleted")
         except ValueError:
             pass  # Expected - record not found

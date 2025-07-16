@@ -4,9 +4,9 @@ Development commands and project info for AI assistants.
 
 ## Project Vision
 
-**FastVimes: Auto-Generated Datasette-Style Apps with NiceGUI + DuckDB**
+**FastVimes: Auto-Generated pgweb-Style Apps with NiceGUI + DuckDB**
 
-Generate Datasette-like exploratory interfaces automatically from DuckDB schemas using NiceGUI's reactive components, with incremental override capabilities for custom form/database applications.
+Generate pgweb-like exploratory interfaces automatically from DuckDB schemas using NiceGUI's reactive components, with incremental override capabilities for custom form/database applications.
 
 **Core Concept**: `fastvimes serve` → instant reactive web app with sample data, tables, forms, charts, and API. Use DuckDB for high-performance analytics, with DuckLake as a production target for multi-user capabilities.
 
@@ -100,7 +100,7 @@ DuckDB/DuckLake (system of record)
   - **httpx command**: Test FastAPI endpoints with automatic server lifecycle
 - **NiceGUI**: Calls DatabaseService public methods directly
 - **Validation**: All validation happens in DatabaseService public methods - FastAPI/CLI/NiceGUI inherit it
-- **Exploratory UI**: Auto-generated Datasette-style interface with incremental customization
+- **Exploratory UI**: Auto-generated pgweb-style interface with incremental customization
 - **Override Pattern**: Start with auto-generated NiceGUI components, selectively override for custom functionality
 - **Production**: DuckLake enables concurrent multi-user access with ACID guarantees
 
@@ -114,24 +114,31 @@ DuckDB/DuckLake (system of record)
 
 ## NiceGUI Exploratory Interface
 
-**Auto-generated Datasette-style interface with incremental override capabilities:**
+**Auto-generated pgweb style interface with incremental override capabilities:**
 
 ### **Core Principle: Schema-Driven UI Generation**
-- **Auto-generation**: NiceGUI components generated automatically from DuckLake schema
+- **Auto-generation**: NiceGUI components generated automatically from schema
 - **Incremental Override**: Start with generated interface, selectively replace components for custom functionality
-- **Reactive Components**: Use NiceGUI's Vue.js-based reactive system for real-time data updates
+- **Reactive State Management**: Use NiceGUI's `ui.state()` for automatic data binding and updates
 - **API Integration**: All UI components consume the same RQL-based FastAPI endpoints
-- **Embedded UIs**: DuckDB UI extension and FastAPI docs accessible within NiceGUI interface (iframe integration)
+- **Advanced SQL Features**: Delegate complex queries to embedded DuckDB UI extension (iframe integration)
 
-### **Auto-Generated Components**
+### **Role Separation: FastVimes vs DuckDB UI**
+- **FastVimes Focus**: Auto-generated exploratory UI (tables, forms, charts) with CRUD operations
+- **DuckDB UI Extension**: Advanced SQL editor, query analysis, performance tuning, complex joins
+- **Integration**: DuckDB UI embedded as iframe tab within FastVimes interface
+- **Handoff**: One-click transition from FastVimes table view to DuckDB UI query editor
+
+### **Auto-Generated Components (pgweb-inspired)**
 1. **Table Browser**: Interactive table/view listing with search and filtering
 2. **Data Explorer**: Sortable, filterable data grids with inline editing capabilities
 3. **Form Generator**: CRUD forms automatically created from table schemas
+4. **DuckDB UI Tab**: Embedded iframe for advanced SQL features
 
 ### **Planned Components**
-4. **Query Builder**: Visual RQL query construction interface (Phase 3)
-5. **Chart Generator**: Auto-generated plots based on column types and data patterns (Phase 3)
-6. **Relationship Navigator**: Follow foreign keys between related tables (Phase 5)
+5. **Query Builder**: Visual RQL query construction interface (Phase 3)
+6. **Chart Generator**: Auto-generated plots based on column types and data patterns (Phase 3)
+7. **Relationship Navigator**: Follow foreign keys between related tables (Phase 5)
 
 ### **Schema Generation Scope (MVP)**
 - **Basic tables**: Simple column types (text, number, date, boolean)
@@ -143,39 +150,88 @@ DuckDB/DuckLake (system of record)
 ```python
 # Auto-generated base interface
 app = FastVimes(db_path="data.db")
-app.serve()  # Gets full Datasette-style interface
+app.serve()  # Gets full pgweb-style interface
 
 # Incremental customization
 class MyApp(FastVimes):
-    def table_component(self, table_name: str):
+    def override_table_page(self, table_name: str):
         if table_name == "users":
-            return custom_user_table()  # Custom component
-        return super().table_component(table_name)  # Default for others
+            return custom_user_table()  # Custom page
+        return None  # Use default for others
         
-    def form_component(self, table_name: str):
+    def override_form_page(self, table_name: str):
         if table_name == "orders":
-            return custom_order_form()  # Custom form logic
-        return super().form_component(table_name)  # Auto-generated forms
+            return custom_order_form()  # Custom form page
+        return None  # Use auto-generated forms
 ```
 
-### **NiceGUI Integration Patterns**
+### **NiceGUI Built-in Usage Patterns**
 ```python
-# Example auto-generated table view
-@ui.page('/table/{table_name}')
-def table_view(table_name: str):
-    columns = app.get_table_schema(table_name)
-    
-    # Auto-generated filter controls
-    filters = ui.row()
-    for col in columns:
-        create_filter_widget(col, filters)
-    
-    # Auto-generated data grid  
-    table = ui.table(columns=columns, rows=[])
-    table.bind_value_from(app.get_table_data, table_name)
-    
-    # Auto-generated action buttons
-    ui.button('Add Record', on_click=lambda: show_add_form(table_name))
+# CORRECT: Use NiceGUI built-ins directly in ui_pages.py
+@ui.page("/table/{table_name}")
+def table_page(table_name: str):
+    with ui.column().classes("w-full h-full"):
+        # Get data from database service
+        data = app.db_service.get_table_data(table_name, limit=1000)
+        schema = app.db_service.get_table_schema(table_name)
+        
+        # Use NiceGUI's built-in AGGrid with full feature set
+        grid = ui.aggrid({
+            "columnDefs": [{"field": col["name"], "sortable": True, "filter": True} for col in schema],
+            "rowData": data["records"] if isinstance(data, dict) else data,
+            "pagination": True,
+            "paginationPageSize": 50,
+        }).classes("w-full h-96")
+
+# AVOID: Custom component wrappers
+class CustomDataExplorer:  # Don't do this anymore
+    def __init__(self, db_service, table_name):
+        # This adds unnecessary complexity over ui.aggrid
+```
+
+### **Component Composition Patterns**
+```python
+# CORRECT: Small, focused functions in ui_pages.py
+def filter_panel(db_service, table_name):
+    """Filter controls using NiceGUI built-ins."""
+    with ui.row():
+        ui.input("Search", on_change=lambda e: apply_filter(e.value))
+        ui.select(["active", "inactive"], label="Status")
+        
+def data_table(db_service, table_name):
+    """Data grid using ui.aggrid built-in."""
+    data = db_service.get_table_data(table_name)
+    schema = db_service.get_table_schema(table_name)
+    return ui.aggrid({
+        "columnDefs": [{"field": col["name"]} for col in schema],
+        "rowData": data
+    })
+
+# Compose pages from functions
+@ui.page("/table/{table_name}")
+def table_page(table_name: str):
+    with ui.column():
+        filter_panel(app.db_service, table_name)
+        data_table(app.db_service, table_name)
+```
+
+### **DuckDB UI Integration Pattern**
+```python
+# Embedded DuckDB UI for advanced features
+@ui.page('/duckdb-ui')
+def duckdb_ui_page():
+    """Embedded DuckDB UI for advanced SQL features."""
+    if app.settings.duckdb_ui_enabled:
+        ui.html(f'''
+            <iframe 
+                src="http://localhost:{app.settings.duckdb_ui_port}" 
+                width="100%" 
+                height="800px"
+                style="border: none;">
+            </iframe>
+        ''').classes("w-full h-full")
+    else:
+        ui.label("DuckDB UI is not enabled").classes("text-gray-500")
 ```
 
 ## Design Principles
@@ -184,7 +240,7 @@ def table_view(table_name: str):
 
 ### 1. Schema-Driven Auto-Generation
 - **Auto-generate everything**: NiceGUI components, FastAPI endpoints, CLI commands from DuckLake schemas
-- **Zero-config startup**: Point at DuckLake, get instant Datasette-style reactive interface
+- **Zero-config startup**: Point at DuckLake, get instant pgweb-style reactive interface
 - **Override methods**: Start with full interface, selectively replace components as needed
 - **Minimal code required**: Single method override should handle most customizations
 
@@ -202,13 +258,20 @@ def table_view(table_name: str):
 - **Simple deployment**: Single Python file should be sufficient for basic apps
 
 ### 4. Modern Developer Experience
-- **Better than Datasette**: Reactive components, incremental customization, auto-generated forms
+- **pgweb style with incremental customisation**: Reactive components, incremental customisation, auto-generated forms
 - **Sensible defaults**: Reactive UI by default, automatic schema introspection
 - **Progressive enhancement**: Start with auto-generated interface, incrementally override for custom needs
 - **Clear boundaries**: Database operations in services, HTTP logic in endpoints, UI in NiceGUI components
 - **API Integration**: NiceGUI interface validates the public API by consuming it directly
 
-### 5. Testing and Development Workflow
+### 5. NiceGUI Reactive Architecture
+- **Use `ui.state()` for reactive data**: Automatic UI updates when state changes
+- **Component composition**: Small, focused components that compose into larger interfaces
+- **Avoid manual DOM manipulation**: Use data binding instead of `.props()` and `.refresh()`
+- **Event-driven architecture**: State changes trigger UI updates automatically
+- **Performance optimization**: Use targeted updates instead of full component rebuilds
+
+### 6. Testing and Development Workflow
 - **RQL-based filtering**: All tests use RQL grammar (`?eq(id,1)` or `?id=eq=1`) for consistent, simple query patterns
 - **Automated API testing**: Built-in `httpx` CLI command for testing endpoints with automatic server lifecycle
 - **Consistent test patterns**: Use RQL operators throughout test suite for filtering, sorting, and aggregation
@@ -454,6 +517,26 @@ uv run fastvimes serve     # Point to existing DuckLake
 
 ### Core Development Workflow
 
+**Git Workflow (CRITICAL):**
+```bash
+# Commit frequently - every few hours of meaningful work
+git add -A && git commit -m "feat: implement user table filtering"
+
+# Remove old code instead of commenting out (git history preserves it)
+rm old_components.py  # Don't comment out, just delete
+git add -A && git commit -m "refactor: remove legacy component system"
+
+# Clean up as you go - don't accumulate dead code
+git clean -fd  # Remove untracked files
+```
+
+**Development Principles:**
+- **Commit every 2-3 hours** of focused work, even if incomplete
+- **Delete old code immediately** - git history preserves everything
+- **No commented-out code** - if you need it later, check git history
+- **Clean working directory** - no old backup files or unused modules
+- **Descriptive commit messages** - explain what and why, not how
+
 **Testing and Quality Assurance:**
 ```bash
 # Fast checks for regular development (recommended)
@@ -589,21 +672,28 @@ uv run fastvimes httpx --port 8001 --verbose "GET /api/v1/data/users?limit=10&fo
 
 ## Project Structure
 
+**Lean Structure: 7 Core Files + Optional Overrides**
+
 ```
 fastvimes/
-├── __init__.py          # Main FastVimes class export
-├── app.py               # FastVimes class implementation
-├── cli.py               # Typer CLI commands
-├── config.py            # pydantic-settings configuration schema
-├── database_service.py  # DatabaseService public API (single source of truth)
-├── rql_to_sql.py        # RQL to SQL conversion using pyrql + SQLGlot
-├── api_client.py        # API client for NiceGUI components
-└── components/          # Auto-generated NiceGUI components (overridable)
-    ├── __init__.py
-    ├── table_browser.py # Table/view listing component  
-    ├── data_explorer.py # Data grid with filtering/sorting
-    └── form_generator.py # CRUD forms from schema
+├── __init__.py          # Export FastVimes class
+├── app.py               # FastVimes class (~150 lines: DB + API + UI setup)
+├── db_service.py        # DatabaseService public API (single source of truth)
+├── api.py               # build_api(db_service) - thin FastAPI wrapper with DI
+├── ui_pages.py          # @ui.page functions using NiceGUI built-ins
+├── cli.py               # Typer commands calling db_service directly
+├── config.py            # pydantic-settings configuration
+└── overrides/           # Optional: drop-in files to override default pages
+    ├── custom_table.py
+    └── custom_form.py
 ```
+
+**Mature Dependencies Handle Everything Else:**
+- **NiceGUI**: `ui.aggrid`, `ui.tree`, `ui.dark_mode`, Quasar layout/theming
+- **FastAPI**: Dependency injection, routing, security scopes  
+- **Authlib**: OAuth/OIDC integration (only if auth enabled)
+- **DuckDB UI**: Advanced SQL IDE via iframe embedding
+- **Python stdlib**: `logging.basicConfig()` for logging
 
 ## RQL Query Language
 
@@ -723,9 +813,26 @@ def table_page(table_name: str):
 # Same service used by /api/{table} endpoints
 ```
 
+## What's Next
+
+**FastVimes lean architecture is complete!** 🎉 See [ROADMAP.md](ROADMAP.md) for detailed next steps.
+
+**Immediate priorities:**
+1. **Navigation sidebar** - Table browser with search (Phase 2)
+2. **Auto-generated charts** - Use `ui.chart` for data visualization  
+3. **Error boundaries** - Graceful UI error handling
+4. **Form improvements** - Smart validation and bulk import
+
+**Implementation approach:**
+- **Use NiceGUI built-ins** - `ui.chart`, `ui.tree`, `ui.upload`
+- **Extend DatabaseService** - Add methods for chart data, validation
+- **Test-first development** - Define behavior before implementation
+- **Commit frequently** - Every 2-3 hours, delete old code immediately
+
 ## Code Style
 
 - Use **ruff** for formatting and linting
-- Type hints on public functions
+- Type hints on public functions  
 - Keep functions small and focused
 - Prefer composition over inheritance
+- **Delete old code** - don't comment out (git history preserves it)

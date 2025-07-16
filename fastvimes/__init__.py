@@ -14,6 +14,7 @@ for multi-user access.
 """
 
 from .app import FastVimes
+from .config import FastVimesSettings
 
-__version__ = "0.1.0"
-__all__ = ["FastVimes"]
+__version__ = "0.2.0"
+__all__ = ["FastVimes", "FastVimesSettings"]

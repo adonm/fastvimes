@@ -17,9 +17,11 @@ app = typer.Typer(
 # Subcommands
 meta_app = typer.Typer(help="Database metadata operations")
 data_app = typer.Typer(help="Table data operations (CRUD)")
+user_app = typer.Typer(help="User management operations")
 
 app.add_typer(meta_app, name="meta")
 app.add_typer(data_app, name="data")
+app.add_typer(user_app, name="user")
 
 
 def _serve_main(db: str | None, host: str, port: int, debug: bool):
@@ -134,7 +136,7 @@ def httpx(
 
         # Wait for server to start
         base_url = f"http://{host}:{port}"
-        for i in range(30):  # Wait up to 30 seconds
+        for _ in range(30):  # Wait up to 30 seconds
             try:
                 urllib.request.urlopen(f"{base_url}/api/v1/meta/tables", timeout=1)
                 break
@@ -257,7 +259,7 @@ def get(
 
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @data_app.command()
@@ -281,10 +283,10 @@ def create(
         )
     except json.JSONDecodeError:
         typer.echo("Error: Invalid JSON data", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @data_app.command()
@@ -311,10 +313,10 @@ def update(
         )
     except json.JSONDecodeError:
         typer.echo("Error: Invalid JSON data", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @data_app.command()
@@ -337,7 +339,7 @@ def delete(
         )
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # =============================================================================
@@ -392,7 +394,7 @@ def query(
 
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # =============================================================================
@@ -433,7 +435,7 @@ def bulk_insert(
 
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @data_app.command()
@@ -476,7 +478,7 @@ def bulk_upsert(
 
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @data_app.command()
@@ -530,7 +532,118 @@ def bulk_delete(
 
     except Exception as e:
         typer.echo(f"Error: {str(e)}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
+
+
+# User management commands
+@user_app.command("create")
+def create_user(
+    username: str = typer.Argument(..., help="Username for the new user"),
+    email: str = typer.Option(..., help="Email address for the new user"),
+    password: str = typer.Option(..., help="Password for the new user"),
+    name: str = typer.Option("", help="Full name for the new user"),
+    admin: bool = typer.Option(False, help="Grant admin privileges to the user"),
+    db: str | None = typer.Option(
+        None,
+        help="Path to DuckDB database. If not provided, uses in-memory database.",
+    ),
+):
+    """Create a new user account."""
+    try:
+        settings = FastVimesSettings(db_path=db or ":memory:")
+
+        # Import here to avoid circular imports
+        from pathlib import Path
+
+        from .database_service import DatabaseService
+        from .middleware.auth_authlib import AuthMiddleware
+
+        db_service = DatabaseService(
+            db_path=Path(settings.db_path), create_sample_data=False
+        )
+
+        # Create auth middleware to access user management methods
+        auth_middleware = AuthMiddleware(
+            app=None,  # We don't need the app for user creation
+            settings=settings,
+            db_service=db_service,
+        )
+
+        # Initialize users table
+        auth_middleware._init_users_table()
+
+        # Set roles
+        roles = ["user"]
+        if admin:
+            roles.append("admin")
+
+        # Create user
+        user_id = auth_middleware._create_user(
+            username=username,
+            email=email,
+            password=password,
+            name=name or username,
+            roles=roles,
+        )
+
+        typer.echo("User created successfully!")
+        typer.echo(f"User ID: {user_id}")
+        typer.echo(f"Username: {username}")
+        typer.echo(f"Email: {email}")
+        typer.echo(f"Roles: {', '.join(roles)}")
+
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}", err=True)
+        raise typer.Exit(1) from e
+
+
+@user_app.command("list")
+def list_users(
+    db: str | None = typer.Option(
+        None,
+        help="Path to DuckDB database. If not provided, uses in-memory database.",
+    ),
+):
+    """List all users."""
+    try:
+        settings = FastVimesSettings(db_path=db or ":memory:")
+
+        # Import here to avoid circular imports
+        from pathlib import Path
+
+        from .database_service import DatabaseService
+
+        db_service = DatabaseService(
+            db_path=Path(settings.db_path), create_sample_data=False
+        )
+
+        # Query users table
+        with db_service._create_connection() as conn:
+            result = conn.execute("""
+                SELECT id, username, email, name, roles, created_at
+                FROM fastvimes_users
+                ORDER BY created_at DESC
+            """).fetchall()
+
+        if not result:
+            typer.echo("No users found.")
+            return
+
+        typer.echo("Users:")
+        typer.echo("-" * 80)
+        for row in result:
+            user_id, username, email, name, roles, created_at = row
+            typer.echo(f"ID: {user_id}")
+            typer.echo(f"Username: {username}")
+            typer.echo(f"Email: {email}")
+            typer.echo(f"Name: {name}")
+            typer.echo(f"Roles: {', '.join(roles)}")
+            typer.echo(f"Created: {created_at}")
+            typer.echo("-" * 80)
+
+    except Exception as e:
+        typer.echo(f"Error: {str(e)}", err=True)
+        raise typer.Exit(1) from e
 
 
 if __name__ in {"__main__", "__mp_main__"}:
