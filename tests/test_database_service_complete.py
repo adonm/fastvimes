@@ -318,25 +318,25 @@ class TestCRUDOperations:
         """Test chart data generation for visualization."""
         # Test with users table (has categorical and numeric data)
         chart_data = db_service.get_chart_data("users")
-        
+
         # Check structure
         assert "table_name" in chart_data
         assert "charts" in chart_data
         assert "numeric_columns" in chart_data
         assert "categorical_columns" in chart_data
         assert "date_columns" in chart_data
-        
+
         assert chart_data["table_name"] == "users"
-        
+
         # Should have some charts for the users table
         charts = chart_data["charts"]
         assert isinstance(charts, list)
-        
+
         # Should identify column types correctly
         assert "age" in chart_data["numeric_columns"]
         assert "department" in chart_data["categorical_columns"]
         assert "created_at" in chart_data["date_columns"]
-        
+
         # Check chart structure if any charts were generated
         for chart in charts:
             assert "type" in chart

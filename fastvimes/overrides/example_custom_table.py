@@ -11,6 +11,7 @@ class MyApp(FastVimes):
 
 from nicegui import ui
 
+
 def custom_user_table():
     """Custom user table with specialized features."""
     with ui.column().classes("w-full"):

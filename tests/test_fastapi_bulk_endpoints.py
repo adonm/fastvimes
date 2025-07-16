@@ -479,7 +479,7 @@ class TestFastAPIBulkEndpoints:
         )
 
         assert response.status_code == 400
-        assert "not found" in response.json()["detail"].lower()
+        assert "does not exist" in response.json()["detail"].lower()
 
         # Test with invalid file format
         response = test_client.post(

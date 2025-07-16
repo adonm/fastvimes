@@ -312,7 +312,9 @@ class DatabaseService:
                 columns = [desc[0] for desc in self.connection.description]
                 total_count = self._get_table_count(table_name)
             except Exception as e:
-                raise ValueError(f"Table '{table_name}' not found or query failed: {e}") from e
+                raise ValueError(
+                    f"Table '{table_name}' not found or query failed: {e}"
+                ) from e
 
         data = [dict(zip(columns, row, strict=False)) for row in result]
 
@@ -815,38 +817,50 @@ class DatabaseService:
     def get_chart_data(self, table_name: str) -> dict[str, Any]:
         """Analyze table data and suggest appropriate chart visualizations."""
         schema = self.get_table_schema(table_name)
-        
+
         # Find numeric columns for charts
         numeric_columns = [
-            col for col in schema 
-            if any(t in col["type"].lower() for t in ["int", "float", "double", "decimal", "number"])
+            col
+            for col in schema
+            if any(
+                t in col["type"].lower()
+                for t in ["int", "float", "double", "decimal", "number"]
+            )
         ]
-        
+
         # Find categorical columns for grouping
         categorical_columns = [
-            col for col in schema 
-            if any(t in col["type"].lower() for t in ["varchar", "text", "string", "char", "bool"])
+            col
+            for col in schema
+            if any(
+                t in col["type"].lower()
+                for t in ["varchar", "text", "string", "char", "bool"]
+            )
             and col["name"] not in ["id", "created_at", "updated_at"]
         ]
-        
+
         chart_suggestions = []
-        
+
         # Count by categorical columns (bar charts)
-        for cat_col in categorical_columns[:3]:  # Limit to first 3 to avoid too many charts
+        for cat_col in categorical_columns[
+            :3
+        ]:  # Limit to first 3 to avoid too many charts
             try:
                 query = f"SELECT {cat_col['name']}, COUNT(*) as count FROM {table_name} GROUP BY {cat_col['name']} ORDER BY count DESC LIMIT 10"
                 data = self.execute_query(query, [])
                 if data:
-                    chart_suggestions.append({
-                        "type": "bar",
-                        "title": f"Count by {cat_col['name'].title()}",
-                        "data": data,
-                        "x_key": cat_col["name"],
-                        "y_key": "count"
-                    })
+                    chart_suggestions.append(
+                        {
+                            "type": "bar",
+                            "title": f"Count by {cat_col['name'].title()}",
+                            "data": data,
+                            "x_key": cat_col["name"],
+                            "y_key": "count",
+                        }
+                    )
             except Exception:
                 pass
-        
+
         # Distribution of numeric columns (histograms)
         for num_col in numeric_columns[:2]:  # Limit to first 2 numeric columns
             try:
@@ -854,7 +868,7 @@ class DatabaseService:
                 raw_data = self.execute_query(query, [])
                 if raw_data:
                     # Create histogram bins
-                    values = [row[num_col['name']] for row in raw_data]
+                    values = [row[num_col["name"]] for row in raw_data]
                     if values:
                         min_val, max_val = min(values), max(values)
                         if max_val > min_val:
@@ -862,60 +876,73 @@ class DatabaseService:
                             bin_size = (max_val - min_val) / bin_count
                             bins = {}
                             for val in values:
-                                bin_key = int((val - min_val) // bin_size) if bin_size > 0 else 0
-                                bin_key = min(bin_key, bin_count - 1)  # Ensure within range
+                                bin_key = (
+                                    int((val - min_val) // bin_size)
+                                    if bin_size > 0
+                                    else 0
+                                )
+                                bin_key = min(
+                                    bin_key, bin_count - 1
+                                )  # Ensure within range
                                 bin_label = f"{min_val + bin_key * bin_size:.1f}-{min_val + (bin_key + 1) * bin_size:.1f}"
                                 bins[bin_label] = bins.get(bin_label, 0) + 1
-                            
-                            histogram_data = [{"range": k, "count": v} for k, v in bins.items()]
-                            chart_suggestions.append({
-                                "type": "bar",
-                                "title": f"Distribution of {num_col['name'].title()}",
-                                "data": histogram_data,
-                                "x_key": "range",
-                                "y_key": "count"
-                            })
+
+                            histogram_data = [
+                                {"range": k, "count": v} for k, v in bins.items()
+                            ]
+                            chart_suggestions.append(
+                                {
+                                    "type": "bar",
+                                    "title": f"Distribution of {num_col['name'].title()}",
+                                    "data": histogram_data,
+                                    "x_key": "range",
+                                    "y_key": "count",
+                                }
+                            )
             except Exception:
                 pass
-        
+
         # Time series if there's a date column
         date_columns = [
-            col for col in schema 
+            col
+            for col in schema
             if any(t in col["type"].lower() for t in ["date", "timestamp", "time"])
         ]
-        
+
         if date_columns and numeric_columns:
             date_col = date_columns[0]
             num_col = numeric_columns[0]
             try:
                 query = f"""
-                    SELECT DATE_TRUNC('day', {date_col['name']}) as date, 
-                           AVG({num_col['name']}) as avg_value,
+                    SELECT DATE_TRUNC('day', {date_col["name"]}) as date,
+                           AVG({num_col["name"]}) as avg_value,
                            COUNT(*) as count
-                    FROM {table_name} 
-                    WHERE {date_col['name']} IS NOT NULL AND {num_col['name']} IS NOT NULL
-                    GROUP BY DATE_TRUNC('day', {date_col['name']})
+                    FROM {table_name}
+                    WHERE {date_col["name"]} IS NOT NULL AND {num_col["name"]} IS NOT NULL
+                    GROUP BY DATE_TRUNC('day', {date_col["name"]})
                     ORDER BY date
                     LIMIT 30
                 """
                 data = self.execute_query(query, [])
                 if data:
-                    chart_suggestions.append({
-                        "type": "line",
-                        "title": f"{num_col['name'].title()} Over Time",
-                        "data": data,
-                        "x_key": "date",
-                        "y_key": "avg_value"
-                    })
+                    chart_suggestions.append(
+                        {
+                            "type": "line",
+                            "title": f"{num_col['name'].title()} Over Time",
+                            "data": data,
+                            "x_key": "date",
+                            "y_key": "avg_value",
+                        }
+                    )
             except Exception:
                 pass
-        
+
         return {
             "table_name": table_name,
             "charts": chart_suggestions,
             "numeric_columns": [col["name"] for col in numeric_columns],
             "categorical_columns": [col["name"] for col in categorical_columns],
-            "date_columns": [col["name"] for col in date_columns]
+            "date_columns": [col["name"] for col in date_columns],
         }
 
     # Bulk Operations using DuckDB native file handling

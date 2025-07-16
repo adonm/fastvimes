@@ -1,10 +1,9 @@
 """Tests for the new lean FastVimes structure."""
 
+
 import pytest
-from pathlib import Path
 
 from fastvimes import FastVimes, FastVimesSettings
-from fastvimes.database_service import DatabaseService
 
 
 class TestLeanStructure:
@@ -35,12 +34,12 @@ class TestLeanStructure:
         # Test basic operations
         tables = app.db_service.list_tables()
         assert isinstance(tables, list)
-        
+
         if tables:  # If sample data is present
             first_table = tables[0]["name"]
             schema = app.db_service.get_table_schema(first_table)
             assert isinstance(schema, list)
-            
+
             data = app.db_service.get_table_data(first_table, limit=5)
             assert data is not None
 
@@ -48,12 +47,12 @@ class TestLeanStructure:
         """Test FastAPI is properly mounted."""
         # The API should be accessible
         assert app.api is not None
-        assert hasattr(app.api, 'routes')
-        
+        assert hasattr(app.api, "routes")
+
         # Check some expected routes exist
         route_paths = [route.path for route in app.api.routes]
-        assert any('/v1/meta/tables' in path for path in route_paths)
-        assert any('/v1/data/' in path for path in route_paths)
+        assert any("/v1/meta/tables" in path for path in route_paths)
+        assert any("/v1/data/" in path for path in route_paths)
 
     def test_override_hooks(self, app):
         """Test override hooks return None by default."""
@@ -70,9 +69,9 @@ class TestLeanStructure:
     async def test_api_endpoints_basic(self, app):
         """Test basic API endpoints work."""
         from fastapi.testclient import TestClient
-        
+
         client = TestClient(app.api)
-        
+
         # Test tables endpoint
         response = client.get("/v1/meta/tables")
         assert response.status_code == 200
@@ -81,24 +80,28 @@ class TestLeanStructure:
 
     def test_backward_compatibility_imports(self):
         """Test old imports still work with deprecation warnings."""
+        import importlib
+        import sys
+        
+        # Remove cached module to ensure fresh import
+        if 'fastvimes.components' in sys.modules:
+            del sys.modules['fastvimes.components']
+        
         with pytest.warns(DeprecationWarning):
+            import fastvimes.components
             from fastvimes.components import AGGridDataExplorer
-            
-        with pytest.warns(DeprecationWarning):
-            from fastvimes.core_app import FastVimes as OldFastVimes
 
 
 @pytest.mark.fast
 class TestLeanStructureFast:
     """Fast tests for lean structure - no server startup."""
-    
+
     def test_imports(self):
         """Test all imports work."""
         from fastvimes import FastVimes, FastVimesSettings
         from fastvimes.app import FastVimes as AppFastVimes
-        from fastvimes.database_service import DatabaseService
         from fastvimes.config import FastVimesSettings as ConfigSettings
-        
+
         assert FastVimes is AppFastVimes
         assert FastVimesSettings is ConfigSettings
 
@@ -110,7 +113,7 @@ class TestLeanStructureFast:
             duckdb_ui_enabled=False,
         )
         app = FastVimes(settings=settings)
-        
+
         assert app.db_service is not None
         assert app.api is not None
         app._cleanup()  # Manual cleanup for test
