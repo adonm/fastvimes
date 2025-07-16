@@ -59,85 +59,55 @@
 
 ---
 
-## 🏗️ **Phase 4: Production Features** (NEXT UP)
+## 🏗️ **Phase 4: Simple pgweb-Style Interface** (NEXT UP)
 
-### **Authentication & Authorization**
-- [ ] **Authlib integration** - Full OAuth/OIDC support
-- [ ] **Role-based access** - Table-level permissions
-- [ ] **API key management** - Programmatic access
-- [ ] **Audit logging** - Track data changes
+### **Core pgweb Features (Simple & Essential)**
+- [ ] **Navigation sidebar** - Table browser with search and filtering
+- [ ] **Data tables** - Sortable, filterable grids with pagination
+- [ ] **Basic forms** - Simple CRUD operations for records
+- [ ] **Export functionality** - CSV/Parquet downloads
+- [ ] **DuckDB UI integration** - Embedded iframe for advanced SQL
 
-### **Multi-Database Support**
-- [ ] **DuckLake production** - PostgreSQL/MySQL catalogs
-- [ ] **Connection pooling** - Handle concurrent users
-- [ ] **Database migrations** - Schema version management
-- [ ] **Backup/restore** - Data protection tools
+### **Advanced Features → DuckDB UI**
+- [ ] **Complex queries** - Advanced SQL editor (DuckDB UI handles)
+- [ ] **Query analysis** - Performance tuning (DuckDB UI handles)
+- [ ] **Schema visualization** - ER diagrams (DuckDB UI handles)
+- [ ] **Data profiling** - Statistical analysis (DuckDB UI handles)
 
-### **Advanced Features**
-- [ ] **Real-time updates** - WebSocket data streaming
-- [ ] **Scheduled queries** - Background job processing
-- [ ] **Plugin system** - Custom page/component overrides
-- [ ] **Themes & branding** - Customizable appearance
+### **Production Features (Later)**
+- [ ] **Authentication** - Basic user auth
+- [ ] **Multi-database** - DuckLake support
+- [ ] **API security** - Rate limiting, validation
+- [ ] **Deployment** - Docker, systemd service
 
-**Estimated Timeline:** 6-8 weeks
+**Estimated Timeline:** 2-3 weeks for core pgweb features
 
 ---
 
 ## 📋 **Immediate Next Actions** (This Week)
 
-### **1. Navigation Sidebar** 
-```python
-# Add to ui_pages.py
-@ui.page("/")
-def index():
-    with ui.row().classes("w-full h-full"):
-        # Sidebar with table browser
-        with ui.left_drawer().classes("w-64"):
-            table_browser_sidebar()
-        
-        # Main content area
-        with ui.column().classes("flex-1"):
-            welcome_dashboard()
-```
+### **pgweb-Style Interface Priorities**
 
-### **2. Error Boundaries**
-```python
-# Add error handling wrapper
-def with_error_boundary(page_func):
-    def wrapper(*args, **kwargs):
-        try:
-            return page_func(*args, **kwargs)
-        except Exception as e:
-            ui.label(f"Error: {e}").classes("text-red-500")
-            ui.button("Go Home", on_click=lambda: ui.navigate.to("/"))
-    return wrapper
-```
+#### **1. Core Table Browsing Experience**
+- [ ] Simple table listing with search
+- [ ] Click to view table data  
+- [ ] Basic pagination and sorting
+- [ ] Row-by-row viewing/editing
 
-### **3. Chart Integration**
-```python
-# Add chart generation based on column types
-def auto_chart(db_service, table_name, column_name):
-    data = db_service.get_table_data(table_name, select=[column_name])
-    
-    # Auto-detect chart type based on data
-    if is_numeric(column_name):
-        return ui.chart(histogram_data(data))
-    elif is_categorical(column_name):
-        return ui.chart(bar_chart_data(data))
-```
+#### **2. DuckDB UI Integration**
+- [ ] "Advanced SQL" tab that opens DuckDB UI iframe
+- [ ] Seamless handoff from table view to SQL editor
+- [ ] Context passing (selected table/data)
 
-### **4. Tests for New Features**
-```python
-# Add to test_lean_structure.py
-class TestUIEnhancements:
-    async def test_navigation_sidebar(self, user: User):
-        await user.open("/")
-        await user.should_see("Tables")
-        
-    async def test_error_handling(self, user: User):
-        await user.open("/table/nonexistent")
-        await user.should_see("Error:")
-```
+#### **3. Essential CRUD Operations**
+- [ ] Add/edit/delete individual records
+- [ ] Simple form validation
+- [ ] Success/error feedback
+
+#### **4. Export & Import**
+- [ ] One-click CSV/Parquet export
+- [ ] Drag-drop file import
+- [ ] Format detection
 
 ---
 

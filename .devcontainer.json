@@ -1,0 +1,21 @@
+{
+    "image": "mcr.microsoft.com/devcontainers/python:3",
+    "onCreateCommand": "pip install uv && uv sync --dev && uv run playwright install-deps && uv run playwright install && uv run nodeenv -p",
+    "runArgs": [
+        "--shm-size=2gb",
+        "--cap-add=SYS_ADMIN"
+    ],
+    "containerEnv": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "charliermarsh.ruff",
+                "ms-python.debugpy",
+                "sourcegraph.amp"
+            ]
+        }
+    }
+}

@@ -114,7 +114,7 @@ DuckDB/DuckLake (system of record)
 
 ## NiceGUI Exploratory Interface
 
-**Auto-generated pgweb style interface with incremental override capabilities:**
+**Auto-generated pgweb-style interface with incremental override capabilities:**
 
 ### **Core Principle: Schema-Driven UI Generation**
 - **Auto-generation**: NiceGUI components generated automatically from schema
@@ -483,6 +483,7 @@ async def test_form_workflow():
 - **Charts (ECharts)**: Test chart rendering, data updates, interaction, tooltips
 - **Forms**: Test field validation, submission, error handling, success feedback
 - **Error Boundaries**: Test graceful error handling and user feedback
+- **DuckDB UI Integration**: Test iframe embedding, context passing, handoff workflows
 
 **Component Testing Standards:**
 - **Method Coverage**: Test all public methods and user interaction flows
@@ -492,6 +493,9 @@ async def test_form_workflow():
 - **Multi-Schema Support**: Test with different table structures and column types
 - **Cross-Browser Support**: Test core functionality in Chrome, Firefox, Safari
 - **Mobile Responsiveness**: Test navigation drawer and components on mobile viewports
+- **pgweb-Style Workflows**: Test complete table browsing → data exploration → CRUD operations
+
+**See [docs/TESTING.md](docs/TESTING.md) for comprehensive testing guide and Playwright workflow examples.**
 
 **Key Testing Principles:**
 - **Multi-Schema Testing**: Test with different table names, column types, and structures
@@ -737,8 +741,14 @@ uv run fastvimes httpx --port 8001 --verbose "GET /api/v1/data/users?limit=10&fo
 
 - **URL patterns**: Clear separation of API and UI endpoints
   - `/api/{table}` - JSON API endpoints for table data
-- **NiceGUI interface**: Auto-generated reactive components from DuckLake schema
-- **DuckLake backend**: Enables concurrent multi-user access with ACID guarantees via PostgreSQL/MySQL catalogs
+- **NiceGUI interface**: Auto-generated reactive components from DuckDB schemas
+- **DuckDB backend**: High-performance analytics with file-based storage, DuckLake for production
+
+### **Role Separation: FastVimes vs DuckDB UI**
+- **FastVimes Focus**: Simple pgweb-style exploratory interface (tables, forms, charts) with CRUD operations
+- **DuckDB UI Extension**: Advanced SQL editor, query analysis, performance tuning, complex joins
+- **Integration**: DuckDB UI embedded as iframe tab within FastVimes interface
+- **Handoff**: One-click transition from FastVimes table view to DuckDB UI query editor
 
 ## Project Structure
 

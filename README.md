@@ -23,6 +23,8 @@ uv run fastvimes serve --db my_data.db
 - 📖 **Embedded admin tools** (API docs, SQL console, server logs)
 - 🎨 **Theme toggle** with Gruvbox color scheme
 
+**📚 Learn the UI**: [Quick Start Guide](docs/UI_QUICK_START.md) | [Full UI Walkthrough](docs/UI_WALKTHROUGH.md)
+
 ## 🎯 Core Concept
 
 **Default Setup**: Uses in-memory DuckDB with sample data for zero-config startup.  

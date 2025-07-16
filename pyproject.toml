@@ -70,7 +70,8 @@ markers = [
     "cli: CLI interface tests (slow - uses subprocess)",  
     "http: HTTP interface tests (fast)",
     "slow: Slow tests that use subprocess or file operations",
-    "fast: Fast tests for regular development (python_api + http)"
+    "fast: Fast tests for regular development (python_api + http)",
+    "playwright: Playwright UI tests (slow - uses browser)"
 ]
 
 
@@ -90,4 +91,7 @@ dev = [
     "pytest-cov>=6.2.1",
     "rich>=14.0.0",
     "ruff>=0.12.2",
+    "playwright>=1.40.0",
+    "pytest-playwright>=0.4.0",
+    "nodeenv>=1.9.1",
 ]
