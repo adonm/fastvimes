@@ -401,47 +401,54 @@ def query(
 def duckdb(
     db: str | None = typer.Option(None, help="Path to DuckDB database"),
 ):
-    """Open DuckDB CLI connected to the FastVimes database.
+    """Open DuckDB CLI connected to the same database as FastVimes.
     
-    This launches the native DuckDB command-line interface with full SQL support,
-    advanced features, and rich formatting. Much more powerful than a custom shell.
+    This launches the native DuckDB command-line interface connected to the exact
+    same database that FastVimes uses. Changes made in the CLI will be visible
+    in the FastVimes web interface and vice versa.
+    
+    Note: Only works with file-based databases. In-memory databases cannot be 
+    shared between processes.
     
     Examples:
-        fastvimes duckdb                    # Connect to in-memory sample data
-        fastvimes duckdb --db demo.db       # Connect to specific database
+        fastvimes duckdb --db demo.db       # Connect to specific database file
     """
     import subprocess
     import sys
     
-    # Determine database path
+    # Handle database path - must be a file, not in-memory
     if db is None:
-        # For in-memory database, we need to create a temporary file
-        import tempfile
-        from .database_service import DatabaseService
-        
-        # Create temp database with sample data
-        temp_db = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
-        temp_db.close()
-        
-        # Initialize with sample data
-        db_service = DatabaseService(temp_db.name, create_sample_data=True)
-        db_service._conn.close()  # Close connection before DuckDB CLI opens it
-        
-        typer.echo(f"Created temporary database with sample data: {temp_db.name}")
-        typer.echo("Note: This temporary database will be deleted when you exit.")
-        db_path = temp_db.name
-        cleanup_needed = True
-    else:
-        db_path = db
-        cleanup_needed = False
+        typer.echo(
+            "Error: DuckDB CLI requires a file-based database.",
+            err=True
+        )
+        typer.echo(
+            "In-memory databases cannot be shared between processes.",
+            err=True
+        )
+        typer.echo("")
+        typer.echo("Solutions:")
+        typer.echo("  1. Create a file database: fastvimes init demo.db")
+        typer.echo("  2. Use an existing database: fastvimes duckdb --db demo.db")
+        typer.echo("  3. Use FastVimes query command: fastvimes query 'SELECT * FROM users'")
+        raise typer.Exit(1)
+    
+    # Verify database file exists
+    db_path = Path(db)
+    if not db_path.exists():
+        typer.echo(f"Error: Database file '{db}' does not exist.", err=True)
+        typer.echo(f"Create it with: fastvimes init {db}")
+        raise typer.Exit(1)
     
     typer.echo(f"Opening DuckDB CLI for database: {db_path}")
+    typer.echo("This connects to the SAME database that FastVimes uses.")
+    typer.echo("Changes made here will be visible in the web interface.")
     typer.echo("Type .help for DuckDB commands, .exit to quit")
-    typer.echo("-" * 50)
+    typer.echo("-" * 60)
     
     try:
-        # Launch DuckDB CLI
-        result = subprocess.run(["duckdb", db_path], check=False)
+        # Launch DuckDB CLI with the exact same database file
+        result = subprocess.run(["duckdb", str(db_path)], check=False)
         sys.exit(result.returncode)
     except FileNotFoundError:
         typer.echo(
@@ -454,14 +461,6 @@ def duckdb(
         sys.exit(1)
     except KeyboardInterrupt:
         typer.echo("\nExiting DuckDB CLI")
-    finally:
-        # Clean up temporary database if needed
-        if cleanup_needed:
-            import os
-            try:
-                os.unlink(db_path)
-            except OSError:
-                pass  # Ignore cleanup errors
 
 # =============================================================================
 # BULK OPERATIONS COMMANDS - File-based bulk operations

@@ -625,8 +625,8 @@ uv run fastvimes meta tables
 uv run fastvimes data get users --eq "active,true"
 
 # Interactive SQL shell (uses mature DuckDB CLI)
-uv run fastvimes duckdb                    # In-memory sample data
-uv run fastvimes duckdb --db demo.db       # Connect to specific database
+# Note: Only works with file databases, not in-memory
+uv run fastvimes duckdb --db demo.db       # Connect to SAME database as FastVimes app
 ```
 
 **Local Development Server:**
@@ -887,10 +887,12 @@ def table_page(table_name: str):
 **FastVimes lean architecture is complete!** 🎉 See [ROADMAP.md](ROADMAP.md) for detailed next steps.
 
 **Phase 3 Complete: Developer Experience**
-1. **Native DuckDB CLI integration** - `fastvimes duckdb` command launches mature DuckDB shell
-2. **Health endpoint** - `/api/health` for production monitoring
+1. **Native DuckDB CLI integration** - `fastvimes duckdb` connects to same database as app (file databases only)
+2. **Health endpoint** - `/api/health` for production monitoring  
 3. **Enhanced OpenAPI docs** - Rich documentation with RQL examples and proper tagging
 4. **Mature dependency usage** - Leverage existing tools instead of custom implementations
+
+**Key Design Decision:** DuckDB CLI connects to the exact same database file that FastVimes uses, ensuring data consistency. In-memory databases cannot be shared between processes, so CLI is only available for file-based databases.
 
 **Implementation approach:**
 - **Use NiceGUI built-ins** - `ui.chart`, `ui.tree`, `ui.upload`
