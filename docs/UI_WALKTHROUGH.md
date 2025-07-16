@@ -222,7 +222,7 @@ FastVimes is fully responsive and works great on mobile devices:
 5. **View** your new data in the table
 
 ### Using the API
-1. **Visit** the `/docs` endpoint
+1. **Visit** the `/api/docs` endpoint
 2. **Explore** available endpoints
 3. **Try** API calls interactively
 4. **Copy** examples for your applications
@@ -291,7 +291,7 @@ GET /api/v1/data/users?sort(+name)&limit(50)
 ## Getting Help
 
 ### Documentation
-- **API Docs**: Visit `/docs` for complete API reference
+- **API Docs**: Visit `/api/docs` for complete API reference
 - **GitHub**: Check the FastVimes repository for detailed documentation
 - **Examples**: Look at the `examples/` directory for sample applications
 

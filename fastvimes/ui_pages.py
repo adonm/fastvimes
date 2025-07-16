@@ -68,13 +68,24 @@ def register_pages(app: "FastVimes"):
                     "text-sm font-medium text-grey-6 mb-2"
                 )
 
-                with ui.row().classes("w-full"):
+                with ui.column().classes("w-full gap-2"):
                     ui.button(
-                        "DuckDB UI", on_click=lambda: ui.navigate.to("/duckdb-ui")
-                    ).props("flat size=sm")
-                    ui.button("Home", on_click=lambda: ui.navigate.to("/")).props(
-                        "flat size=sm"
-                    )
+                        "API Docs", 
+                        on_click=lambda: ui.open("/api/docs", new_tab=True),
+                        icon="api"
+                    ).props("flat size=sm color=primary").classes("w-full justify-start")
+                    
+                    ui.button(
+                        "DuckDB UI", 
+                        on_click=lambda: ui.open(f"http://localhost:{app.settings.duckdb_ui_port}", new_tab=True),
+                        icon="storage"
+                    ).props("flat size=sm color=secondary").classes("w-full justify-start")
+                    
+                    ui.button(
+                        "Home", 
+                        on_click=lambda: ui.navigate.to("/"),
+                        icon="home"
+                    ).props("flat size=sm").classes("w-full justify-start")
 
         return drawer
 
@@ -546,32 +557,7 @@ def register_pages(app: "FastVimes"):
                     ui.label(f"Technical details: {e}").classes("text-xs text-gray-500 mt-2")
                     ui.button("← Back to Tables", on_click=lambda: ui.navigate.to("/"), icon="arrow_back").classes("mt-3")
 
-    @ui.page("/duckdb-ui")
-    def duckdb_ui_page():
-        """Embedded DuckDB UI for advanced SQL features."""
-        _create_navigation_drawer()
 
-        with ui.column().classes("w-full h-full p-4"):
-            ui.label("DuckDB UI").classes("text-2xl font-bold mb-4")
-
-            if app.settings.duckdb_ui_enabled:
-                ui.html(f"""
-                    <iframe
-                        src="http://localhost:{app.settings.duckdb_ui_port}"
-                        width="100%"
-                        height="800px"
-                        style="border: none;">
-                    </iframe>
-                """).classes("w-full h-full")
-            else:
-                with ui.card().classes("w-full max-w-lg"):
-                    with ui.card_section():
-                        ui.label("DuckDB UI is not enabled").classes(
-                            "text-gray-500 mb-4"
-                        )
-                        ui.label(
-                            "To enable DuckDB UI, set FASTVIMES_DUCKDB_UI_ENABLED=true in your environment."
-                        ).classes("text-sm")
 
 
 def _export_data(table_name: str, format: str, app: "FastVimes"):

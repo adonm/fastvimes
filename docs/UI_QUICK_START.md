@@ -32,7 +32,7 @@ open http://localhost:8000
 
 ![API Docs](screenshots/08-api-docs.png)
 
-1. Visit `/docs` for interactive API documentation
+1. Visit `/api/docs` for interactive API documentation
 2. Try endpoints directly in the browser
 3. Copy examples for your applications
 
@@ -47,7 +47,7 @@ FastVimes works perfectly on mobile devices with responsive design.
 - **Homepage**: http://localhost:8000
 - **Tables**: http://localhost:8000/table/{table_name}
 - **Forms**: http://localhost:8000/form/{table_name}  
-- **API Docs**: http://localhost:8000/docs
+- **API Docs**: http://localhost:8000/api/docs
 - **API Data**: http://localhost:8000/api/v1/data/{table_name}
 
 ## 💡 Pro Tips

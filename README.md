@@ -2,6 +2,8 @@
 
 **Auto-Generated Datasette-Style Apps with NiceGUI + DuckDB**
 
+> ⚠️ **Experimental/Alpha Stage**: FastVimes is in active development. APIs may change between releases. Use for experimentation and prototyping, not production systems yet.
+
 Zero-config reactive web apps from any database. Point at DuckDB → get instant Datasette-style interface with tables, forms, charts, and API → incrementally override components for custom functionality.
 
 ## ✨ Quick Start
