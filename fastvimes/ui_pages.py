@@ -223,30 +223,54 @@ def register_pages(app: "FastVimes"):
                         else:
                             rows = data if isinstance(data, list) else []
 
-                        # Build column definitions from schema
-                        column_defs = [
-                            {
+                        # Build column definitions from schema with enhanced editing
+                        column_defs = []
+                        for col in schema:
+                            field_type = col["type"].lower()
+                            col_def = {
                                 "headerName": col["name"],
                                 "field": col["name"],
                                 "sortable": True,
                                 "filter": True,
                                 "editable": True,
                             }
-                            for col in schema
-                        ]
+                            
+                            # Add type-specific cell editors for better UX
+                            if "int" in field_type or "float" in field_type or "double" in field_type:
+                                col_def["cellEditor"] = "agNumberCellEditor"
+                                if "int" in field_type:
+                                    col_def["cellEditorParams"] = {"precision": 0}
+                            elif "bool" in field_type:
+                                col_def["cellEditor"] = "agCheckboxCellEditor"
+                                col_def["cellRenderer"] = "agCheckboxCellRenderer"
+                            elif "date" in field_type:
+                                col_def["cellEditor"] = "agDateCellEditor"
+                            else:
+                                col_def["cellEditor"] = "agTextCellEditor"
+                            
+                            column_defs.append(col_def)
 
-                        # Use NiceGUI's built-in AGGrid with enhanced styling
+                        # Inline editing info
+                        with ui.row().classes("items-center mb-2 text-sm text-gray-600"):
+                            ui.icon("edit").classes("text-blue-500 mr-1")
+                            ui.label("Click any cell to edit inline. Changes are saved automatically.")
+                        
+                        # Use NiceGUI's built-in AGGrid with enhanced styling and editing
                         with ui.card().classes("w-full shadow-lg"):
                             with ui.card_section().classes("p-1"):
-                                ui.aggrid(
+                                grid = ui.aggrid(
                                     {
                                         "columnDefs": column_defs,
                                         "rowData": rows,
                                         "rowSelection": "multiple",
-                                        "suppressRowClickSelection": False,
+                                        "suppressRowClickSelection": True,  # Prevent conflicts with editing
                                         "pagination": True,
                                         "paginationPageSize": 25,
                                         "theme": "ag-theme-quartz",
+                                        "singleClickEdit": True,  # Enable single-click editing
+                                        "stopEditingWhenCellsLoseFocus": True,
+                                        "undoRedoCellEditing": True,
+                                        "undoRedoCellEditingLimit": 20,
                                         "defaultColDef": {
                                             "resizable": True,
                                             "sortable": True,
@@ -256,6 +280,9 @@ def register_pages(app: "FastVimes"):
                                         },
                                     }
                                 ).classes("w-full h-96")
+                                
+                                # Add cell value change handler
+                                grid.on("cellValueChanged", lambda e: _handle_cell_edit(e, table_name, app))
 
                         # Add export buttons
                         with ui.row().classes("mt-4"):
@@ -613,6 +640,32 @@ def _validate_form_data(form_data: dict, schema: list) -> tuple[dict, list]:
                 record_data[field_name] = value
     
     return record_data, errors
+
+
+def _handle_cell_edit(event_data, table_name: str, app: "FastVimes"):
+    """Handle inline cell editing in the data grid."""
+    try:
+        if not event_data or "data" not in event_data:
+            return
+            
+        # Extract the edited row data
+        row_data = event_data["data"]
+        
+        # Get the row ID for updating (assuming there's an 'id' field)
+        if "id" not in row_data:
+            ui.notify("Cannot update record: Missing ID field", type="negative")
+            return
+            
+        record_id = row_data["id"]
+        
+        # Update the record in the database
+        filters = {"id": record_id}
+        app.db_service.update_records(table_name, row_data, filters)
+        
+        ui.notify(f"Record {record_id} updated successfully", type="positive", timeout=2000)
+        
+    except Exception as e:
+        ui.notify(f"Failed to update record: {e}", type="negative")
 
 
 def _create_record(table_name: str, form_data: dict, app: "FastVimes"):
