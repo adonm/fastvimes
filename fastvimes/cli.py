@@ -407,6 +407,9 @@ def duckdb(
     same database that FastVimes uses. Changes made in the CLI will be visible
     in the FastVimes web interface and vice versa.
     
+    If DuckDB CLI is not installed, this command offers to automatically install
+    it using the official installer (with user confirmation for security).
+    
     Note: Only works with file-based databases. In-memory databases cannot be 
     shared between processes.
     
@@ -451,16 +454,66 @@ def duckdb(
         result = subprocess.run(["duckdb", str(db_path)], check=False)
         sys.exit(result.returncode)
     except FileNotFoundError:
-        typer.echo(
-            "Error: DuckDB CLI not found. Please install DuckDB:", 
-            err=True
-        )
-        typer.echo("  • On macOS: brew install duckdb", err=True)
-        typer.echo("  • On Ubuntu/Debian: apt install duckdb", err=True)  
-        typer.echo("  • Or download from: https://duckdb.org/docs/installation/", err=True)
-        sys.exit(1)
+        typer.echo("DuckDB CLI not found.", err=True)
+        typer.echo("")
+        
+        # Offer auto-installation
+        if typer.confirm("Would you like to automatically install DuckDB CLI?"):
+            _install_duckdb()
+            # Try again after installation
+            try:
+                result = subprocess.run(["duckdb", str(db_path)], check=False)
+                sys.exit(result.returncode)
+            except FileNotFoundError:
+                typer.echo("Installation failed. Please install manually:", err=True)
+                _show_manual_install_instructions()
+                sys.exit(1)
+        else:
+            typer.echo("Manual installation options:", err=True)
+            _show_manual_install_instructions()
+            sys.exit(1)
     except KeyboardInterrupt:
         typer.echo("\nExiting DuckDB CLI")
+
+
+def _install_duckdb():
+    """Auto-install DuckDB CLI using the official installer."""
+    import subprocess
+    import sys
+    
+    typer.echo("Installing DuckDB CLI...")
+    typer.echo("Running: curl https://install.duckdb.org | sh")
+    
+    try:
+        # Run the official DuckDB installer
+        result = subprocess.run(
+            ["sh", "-c", "curl -fsSL https://install.duckdb.org | sh"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        typer.echo("✅ DuckDB CLI installed successfully!")
+        typer.echo("Installation output:")
+        typer.echo(result.stdout)
+        
+    except subprocess.CalledProcessError as e:
+        typer.echo("❌ Installation failed:", err=True)
+        typer.echo(f"Error: {e.stderr}", err=True)
+        raise
+    except FileNotFoundError:
+        typer.echo("❌ Installation failed: curl not found", err=True)
+        typer.echo("Please install curl first, then try again.", err=True)
+        raise
+
+
+def _show_manual_install_instructions():
+    """Show manual installation instructions for DuckDB CLI."""
+    typer.echo("")
+    typer.echo("Manual installation options:")
+    typer.echo("  • Universal: curl https://install.duckdb.org | sh")
+    typer.echo("  • On macOS: brew install duckdb")
+    typer.echo("  • On Ubuntu/Debian: apt install duckdb")
+    typer.echo("  • Or download from: https://duckdb.org/docs/installation/")
 
 # =============================================================================
 # BULK OPERATIONS COMMANDS - File-based bulk operations

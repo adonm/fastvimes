@@ -626,6 +626,7 @@ uv run fastvimes data get users --eq "active,true"
 
 # Interactive SQL shell (uses mature DuckDB CLI)
 # Note: Only works with file databases, not in-memory
+# Auto-installs DuckDB CLI if missing (with user confirmation)
 uv run fastvimes duckdb --db demo.db       # Connect to SAME database as FastVimes app
 ```
 
@@ -893,6 +894,8 @@ def table_page(table_name: str):
 4. **Mature dependency usage** - Leverage existing tools instead of custom implementations
 
 **Key Design Decision:** DuckDB CLI connects to the exact same database file that FastVimes uses, ensuring data consistency. In-memory databases cannot be shared between processes, so CLI is only available for file-based databases.
+
+**Auto-Installation:** The `fastvimes duckdb` command automatically offers to install DuckDB CLI if missing, using the official installer (`curl https://install.duckdb.org | sh`) with user confirmation for security.
 
 **Implementation approach:**
 - **Use NiceGUI built-ins** - `ui.chart`, `ui.tree`, `ui.upload`
