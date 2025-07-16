@@ -110,7 +110,7 @@ class FastVimes:
         """Override hook for custom form pages. Return None to use default."""
         return None
 
-    def serve(self, host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
+    def serve(self, host: str = "0.0.0.0", port: int = 8000, reload: bool = False, show: bool = False):
         """Start the FastVimes server."""
         ui.run(
             host=host,
@@ -118,4 +118,5 @@ class FastVimes:
             reload=reload,
             title="FastVimes",
             dark=self.settings.dark_mode,
+            show=show,  # Disable auto-launch of browser by default
         )

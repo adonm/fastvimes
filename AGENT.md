@@ -402,12 +402,13 @@ fastvimes httpx "GET /api/v1/data/users"  # CLI HTTP testing (httpx)
 
 ### NiceGUI Testing Patterns
 
-**Three-Layer Testing Approach:**
+**Four-Layer Testing Approach:**
 1. **DatabaseService Unit Tests**: Direct method testing with multiple schemas
 2. **API Integration Tests**: HTTP API via `httpx` command with server lifecycle management
-3. **NiceGUI UI Tests**: Using `from nicegui.testing import User` fixture
+3. **NiceGUI UI Tests**: Using `from nicegui.testing import User` fixture  
+4. **Playwright MCP UI Tests**: Full browser testing with real user interactions
 
-**NiceGUI Testing Pattern:**
+#### **Native NiceGUI Testing (Lightweight)**
 ```python
 from nicegui.testing import User
 
@@ -417,11 +418,71 @@ async def test_basic_functionality(user: User) -> None:
     # Assert UI state: await user.wait_for_element()
 ```
 
+#### **Playwright MCP Testing (Comprehensive)**
+
+**When to use Playwright MCP:**
+- **Complete UI workflows**: Multi-step user journeys (navigation → table → form → charts)
+- **Cross-browser testing**: Ensure compatibility across different browsers
+- **Real interaction testing**: Mouse movements, drag-drop, complex gestures
+- **Visual regression testing**: Screenshot comparisons, layout validation
+- **Performance testing**: Page load times, chart rendering performance
+- **Integration testing**: Full stack testing including DuckDB backend
+
+**Playwright MCP Testing Patterns:**
+```python
+# Start server in background for testing
+def setup_test_server():
+    """Start FastVimes server for Playwright testing."""
+    # Use mcp__playwright__browser_navigate to http://localhost:8000
+    # Server automatically started with show=False
+    
+# Test navigation sidebar
+async def test_navigation_sidebar():
+    await mcp__playwright__browser_navigate("http://localhost:8000")
+    await mcp__playwright__browser_snapshot()  # Get page structure
+    await mcp__playwright__browser_click("Table search input", "input[placeholder='Search tables...']")
+    await mcp__playwright__browser_type("Search tables", "input[placeholder='Search tables...']", "users")
+    await mcp__playwright__browser_click("Users table", "row containing 'users'")
+    
+# Test AGGrid functionality
+async def test_data_grid_interaction():
+    await mcp__playwright__browser_navigate("http://localhost:8000/table/users")
+    await mcp__playwright__browser_wait_for(text="Table: users")
+    await mcp__playwright__browser_snapshot()  # Verify grid loaded
+    await mcp__playwright__browser_click("Column filter", "[col-id='name'] .ag-header-icon")
+    await mcp__playwright__browser_type("Filter input", ".ag-filter-text-input", "Alice")
+    
+# Test charts rendering
+async def test_charts_display():
+    await mcp__playwright__browser_navigate("http://localhost:8000/table/users")
+    await mcp__playwright__browser_click("Charts tab", "div[role='tab']:contains('Charts')")
+    await mcp__playwright__browser_wait_for(text="Auto-generated Charts")
+    await mcp__playwright__browser_snapshot()  # Verify charts rendered
+    
+# Test form submission
+async def test_form_workflow():
+    await mcp__playwright__browser_navigate("http://localhost:8000/table/users")
+    await mcp__playwright__browser_click("Add Record", "button:contains('Add Record')")
+    await mcp__playwright__browser_wait_for(text="Add Record to users")
+    await mcp__playwright__browser_type("Name field", "input[label='name']", "Test User")
+    await mcp__playwright__browser_type("Email field", "input[label='email']", "test@example.com")
+    await mcp__playwright__browser_click("Submit", "button:contains('Create Record')")
+    await mcp__playwright__browser_wait_for(text="Record created successfully")
+```
+
+**Playwright MCP Best Practices:**
+- **Use descriptive element names**: "Search input" not just "input"
+- **Wait for content**: Use `browser_wait_for` for dynamic content loading
+- **Take snapshots**: Use `browser_snapshot` for debugging and verification
+- **Test error scenarios**: Invalid inputs, network failures, empty states
+- **Verify API integration**: Check that UI changes persist in database
+
 **UI Component Testing Requirements:**
-- **DataExplorer**: Test filtering, pagination, edit mode, bulk operations, CSV export
-- **FormGenerator**: Test field rendering, validation, form submission, error handling
-- **QueryBuilder**: Test filter management, RQL generation, query execution, results display
-- **TableBrowser**: Test table listing, navigation, error handling
+- **Navigation Sidebar**: Test search functionality, table selection, responsive behavior
+- **Data Tables (AGGrid)**: Test sorting, filtering, pagination, row selection, export
+- **Charts (ECharts)**: Test chart rendering, data updates, interaction, tooltips
+- **Forms**: Test field validation, submission, error handling, success feedback
+- **Error Boundaries**: Test graceful error handling and user feedback
 
 **Component Testing Standards:**
 - **Method Coverage**: Test all public methods and user interaction flows
@@ -429,6 +490,8 @@ async def test_basic_functionality(user: User) -> None:
 - **Error Handling**: Test error scenarios and user feedback
 - **API Integration**: Test component-to-API communication patterns
 - **Multi-Schema Support**: Test with different table structures and column types
+- **Cross-Browser Support**: Test core functionality in Chrome, Firefox, Safari
+- **Mobile Responsiveness**: Test navigation drawer and components on mobile viewports
 
 **Key Testing Principles:**
 - **Multi-Schema Testing**: Test with different table names, column types, and structures
@@ -510,9 +573,10 @@ uv sync --dev
 ```bash
 # Instant demo with in-memory database and sample data
 uv run fastvimes serve                  # No arguments needed!
+# Note: Browser won't auto-launch, manually visit http://localhost:8000
 
-# Or specify custom data
-uv run fastvimes serve     # Point to existing DuckLake
+# Or specify custom data  
+uv run fastvimes serve demo.db          # Point to existing DuckDB file
 ```
 
 ### Core Development Workflow
@@ -562,21 +626,21 @@ uv run fastvimes data get users --eq "active,true"
 
 **Local Development Server:**
 ```bash
-# Start development server (most common)  
+# Start development server (browser won't auto-launch)
 uv run fastvimes serve
 
 # Initialize demo data for testing
-uv run fastvimes init --force
+uv run fastvimes init demo.db --force
 
 # Check database schema during development
-uv run fastvimes schema
-uv run fastvimes tables
+uv run fastvimes meta tables
+uv run fastvimes meta schema users
 
 # Show configuration
 uv run fastvimes config
 
-# Run development server (most common)  
-uv run fastvimes serve
+# Access server manually at: http://localhost:8000
+# API docs available at: http://localhost:8000/api/docs
 ```
 
 **Running Examples:**

@@ -39,8 +39,8 @@ def _serve_main(db: str | None, host: str, port: int, debug: bool):
         print("Database: In-memory with sample data")
     print(f"Server: http://{host}:{port}")
 
-    # Start the server
-    fastvimes.serve(host=host, port=port)
+    # Start the server (don't auto-launch browser)
+    fastvimes.serve(host=host, port=port, show=False)
 
 
 @app.command()
